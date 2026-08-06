@@ -27,6 +27,12 @@ final class Session {
         var interArrivalMs: [Double] = []
     }
 
+    /// Prints the contact count on every change plus each recognised event. The first
+    /// question when a gesture misbehaves is always "how many fingers did the Mac
+    /// actually receive", and guessing at it wastes far more time than this costs.
+    var debug = false
+    private var lastContactCount = -1
+
     init(recognizer: GestureRecognizer, synthesizer: EventSynthesizer) {
         self.recognizer = recognizer
         self.synthesizer = synthesizer
@@ -75,7 +81,13 @@ final class Session {
         }
         lastArrivalMs = arrivedAtMs
 
+        if debug, frame.contacts.count != lastContactCount {
+            lastContactCount = frame.contacts.count
+            print("  contacts: \(frame.contacts.count)  ids \(frame.contacts.map(\.id))")
+        }
+
         for event in recognizer.process(frame) {
+            if debug { print("  → \(event)") }
             synthesizer.apply(event)
         }
         return true

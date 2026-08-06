@@ -49,6 +49,7 @@ if flag("--invert-scroll") {
 
 let recognizer = GestureRecognizer(config: config)
 let session = Session(recognizer: recognizer, synthesizer: synthesizer)
+session.debug = flag("--debug")
 let receiver = Receiver(session: session, port: port, queue: queue)
 
 print("""

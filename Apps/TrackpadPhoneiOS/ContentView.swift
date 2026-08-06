@@ -55,19 +55,31 @@ struct ContentView: View {
     }
 
     private var revealButton: some View {
-        Button {
-            showSettings = true
-        } label: {
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(statusColor)
-                .frame(width: 34, height: 34)
-                .background(Color(white: 0.16), in: Circle())
+        HStack(spacing: 8) {
+            Button {
+                showSettings = true
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(statusColor)
+                    .frame(width: 34, height: 34)
+                    .background(Color(white: 0.16), in: Circle())
+            }
+            .allowsHitTesting(!showSettings)
+
+            // Live finger count. Makes "the gesture did nothing" answer itself: if two
+            // fingers on the glass still read 1, the phone is not seeing them and there
+            // is no point looking at the Mac.
+            if session.liveContacts > 0 {
+                Text("\(session.liveContacts)")
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .allowsHitTesting(false)
+            }
         }
         .opacity(showSettings ? 0 : 0.55)
         .padding(.leading, 14)
         .padding(.top, 10)
-        .allowsHitTesting(!showSettings)
     }
 
     // MARK: - Settings

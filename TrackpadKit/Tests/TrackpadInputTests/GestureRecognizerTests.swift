@@ -157,6 +157,67 @@ struct ScrollTests {
         #expect(events.moves.isEmpty, "two fingers must never move the pointer")
     }
 
+    /// Fingers never land in the same frame in real use — one arrives tens of
+    /// milliseconds before the other. Every other scroll test puts both down at once,
+    /// which skips the one-finger prologue entirely.
+    @Test("Two fingers landing a moment apart still scroll")
+    func staggeredLandingScrolls() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 60)
+        stream.hold(0.04)
+        stream.place(1, xMM: 42, yMM: 60)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: 25, over: 0.2)
+        stream.liftAll()
+
+        let events = GestureRecognizer().run(stream)
+        #expect(!events.scrolls.isEmpty, "the second finger must switch the gesture to scrolling")
+        #expect(events.moves.isEmpty, "and the pointer must not have moved")
+    }
+
+    /// The same prologue, but the first finger drifts enough to commit to pointing before
+    /// the second one lands — which is what happens when you are already moving the cursor
+    /// and decide to scroll.
+    @Test("Adding a second finger while the pointer is moving switches to scroll")
+    func secondFingerInterruptsPointing() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 60)
+        stream.move(0, dxMM: 10, dyMM: 0, over: 0.1)
+        stream.place(1, xMM: 42, yMM: 60)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: 25, over: 0.2)
+        stream.liftAll()
+
+        #expect(!GestureRecognizer().run(stream).scrolls.isEmpty)
+    }
+
+    @Test("Three fingers landing one by one still swipe")
+    func staggeredThreeFingerSwipe() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 100)
+        stream.hold(0.03)
+        stream.place(1, xMM: 35, yMM: 100)
+        stream.hold(0.03)
+        stream.place(2, xMM: 50, yMM: 100)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -30, over: 0.2)
+        stream.liftAll()
+
+        #expect(GestureRecognizer().run(stream).shortcuts == [.shortcut(.missionControl)])
+    }
+
+    @Test("Two fingers tapped a moment apart are still a right click")
+    func staggeredTwoFingerTap() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 75)
+        stream.hold(0.03)
+        stream.place(1, xMM: 42, yMM: 75)
+        stream.hold(0.04)
+        stream.liftAll()
+
+        #expect(GestureRecognizer().run(stream).clicks == [.click(.right, count: 1)])
+    }
+
     @Test("Lifting off fast hands the momentum engine a velocity")
     func scrollCarriesExitVelocity() {
         var stream = TouchStreamBuilder()

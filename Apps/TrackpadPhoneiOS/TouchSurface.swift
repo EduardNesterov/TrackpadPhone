@@ -118,6 +118,12 @@ struct TouchSurface: UIViewRepresentable {
 
     func makeUIView(context: Context) -> TouchSurfaceView {
         let view = TouchSurfaceView()
+        // Set here as well as in the initialiser, and never remove it: this defaults to
+        // false on UIView, and when it is false the second finger produces no
+        // touchesBegan at all. Every multi-finger gesture silently disappears while
+        // single-finger tracking keeps working, which points the investigation at the
+        // recogniser instead of here.
+        view.isMultipleTouchEnabled = true
         view.onFrame = onFrame
         view.onLayout = onLayout
         return view

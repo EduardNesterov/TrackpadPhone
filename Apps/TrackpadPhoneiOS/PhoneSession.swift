@@ -20,6 +20,10 @@ final class PhoneSession {
     }
 
     private(set) var state: State = .idle
+    /// Fingers currently on the surface. Shown on screen because "multi-finger gestures
+    /// do nothing" is ambiguous — this says immediately whether the phone even sees the
+    /// second finger, or whether the Mac is misreading what it sends.
+    private(set) var liveContacts = 0
     private(set) var framesSent = 0
     private(set) var echoesReceived = 0
     private(set) var rttP50Ms: Double = 0
@@ -138,6 +142,7 @@ final class PhoneSession {
     // MARK: - Frames
 
     func send(contacts: [Contact], timestamp: TimeInterval) {
+        if contacts.count != liveContacts { liveContacts = contacts.count }
         guard state == .connected else { return }
         let tUs = UInt32(truncatingIfNeeded: Int((timestamp - startedAt) * 1_000_000))
         let frame = TouchFrame(seq: sequence, tSensorUs: tUs, contacts: contacts)
