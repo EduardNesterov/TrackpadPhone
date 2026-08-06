@@ -31,7 +31,14 @@ final class PhoneSession {
     }
 
     private static let hostKey = "trackpadphone.host"
-    private static let port: UInt16 = 51888
+    private static let defaultPort: UInt16 = 51888
+
+    /// Overridable the same way as the host, so a second receiver can be tested without
+    /// disturbing one already running: `-trackpadphone.port 51889`.
+    private static var port: UInt16 {
+        let stored = UserDefaults.standard.integer(forKey: "trackpadphone.port")
+        return stored > 0 && stored <= 65535 ? UInt16(stored) : defaultPort
+    }
 
     private let queue = DispatchQueue(label: "trackpadphone.sender")
     private var connection: NWConnection?

@@ -8,15 +8,16 @@ import TrackpadProtocol
 /// Everything runs on `queue`, so the mutable state below is single-threaded despite
 /// the class being handed to Network's callbacks.
 final class Receiver: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "trackpadphone.receiver")
+    private let queue: DispatchQueue
     private let session: Session
     private let port: NWEndpoint.Port
     private var listener: NWListener?
     private var connections: [NWConnection] = []
 
-    init(session: Session, port: UInt16) {
+    init(session: Session, port: UInt16, queue: DispatchQueue) {
         self.session = session
         self.port = NWEndpoint.Port(rawValue: port)!
+        self.queue = queue
     }
 
     func start() throws {

@@ -2,83 +2,136 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var session = PhoneSession()
+    @State private var showSettings = true
     @FocusState private var hostFieldFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            surface
+        ZStack(alignment: .topLeading) {
+            Color.black.ignoresSafeArea()
+            surface.ignoresSafeArea()
+            // While in use the surface is the whole screen; the only chrome is one small
+            // button, which doubles as the connection indicator so it earns its space.
+            // It alone keeps the safe area — in landscape the physical top-left corner is
+            // behind the Dynamic Island.
+            revealButton
+            if showSettings { settingsPanel.ignoresSafeArea() }
         }
-        .background(Color.black)
         .preferredColorScheme(.dark)
         .persistentSystemOverlays(.hidden)
-        // The screen must not sleep mid-swipe.
+        // Edge swipes belong to the trackpad, not to Control Centre and the app switcher.
+        .defersSystemGestures(on: .all)
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
-            // Lets a launch script skip the address field and the button:
-            //   simctl launch booted <id> -trackpadphone.host 127.0.0.1 -autoconnect 1
-            // UserDefaults picks up `-key value` launch arguments on its own.
             if UserDefaults.standard.bool(forKey: "autoconnect") {
                 session.connect()
             }
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .onChange(of: session.state) { _, state in
+            // Get out of the way as soon as the link is up, and come back if it drops.
+            switch state {
+            case .connected: showSettings = false
+            case .failed: showSettings = true
+            default: break
+            }
+        }
     }
 
-    private var header: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                TextField("Mac address, e.g. 192.168.1.10", text: $session.host)
-                    .textFieldStyle(.roundedBorder)
-                    .keyboardType(.decimalPad)
-                    .autocorrectionDisabled()
-                    .focused($hostFieldFocused)
+    // MARK: - Surface
 
-                Button(session.state == .connected ? "Stop" : "Connect") {
+    private var surface: some View {
+        TouchSurface(
+            onFrame: { contacts, timestamp in
+                session.send(contacts: contacts, timestamp: timestamp)
+            },
+            onLayout: { points, scale in
+                session.updateSurface(points: points, scale: scale)
+            }
+        )
+        .background(Color(white: 0.07))
+        // Touches must not reach the surface while the settings are up, or adjusting the
+        // address would fling the cursor across the Mac.
+        .allowsHitTesting(!showSettings)
+    }
+
+    private var revealButton: some View {
+        Button {
+            showSettings = true
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(statusColor)
+                .frame(width: 34, height: 34)
+                .background(Color(white: 0.16), in: Circle())
+        }
+        .opacity(showSettings ? 0 : 0.55)
+        .padding(.leading, 14)
+        .padding(.top, 10)
+        .allowsHitTesting(!showSettings)
+    }
+
+    // MARK: - Settings
+
+    private var settingsPanel: some View {
+        ZStack {
+            Color.black.opacity(0.75)
+                .onTapGesture {
                     hostFieldFocused = false
+                    if session.state == .connected { showSettings = false }
+                }
+
+            VStack(spacing: 14) {
+                HStack(spacing: 8) {
+                    TextField("192.168.1.10", text: $session.host)
+                        .textFieldStyle(.roundedBorder)
+                        .keyboardType(.decimalPad)
+                        .autocorrectionDisabled()
+                        .focused($hostFieldFocused)
+                        .frame(maxWidth: 220)
+
+                    Button(session.state == .connected ? "Відʼєднати" : "Підключити") {
+                        hostFieldFocused = false
+                        if session.state == .connected {
+                            session.disconnect()
+                        } else {
+                            session.connect()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+
                     if session.state == .connected {
-                        session.disconnect()
-                    } else {
-                        session.connect()
+                        Button("Готово") { showSettings = false }
                     }
                 }
-                .buttonStyle(.borderedProminent)
-            }
 
-            HStack {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 8, height: 8)
-                Text(statusText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Reset", action: session.resetStats)
-                    .font(.caption)
-                    .disabled(session.echoesReceived == 0)
-            }
+                HStack(spacing: 8) {
+                    Circle().fill(statusColor).frame(width: 7, height: 7)
+                    Text(statusText).font(.caption).foregroundStyle(.secondary)
+                }
 
-            // The number M0 exists to produce.
-            HStack(spacing: 16) {
-                metric("RTT p50", session.rttP50Ms)
-                metric("p95", session.rttP95Ms)
-                metric("max", session.rttMaxMs)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("frames").font(.caption2).foregroundStyle(.secondary)
-                    Text("\(session.framesSent)").font(.system(.body, design: .monospaced))
+                HStack(spacing: 18) {
+                    metric("RTT p50", session.rttP50Ms)
+                    metric("p95", session.rttP95Ms)
+                    metric("max", session.rttMaxMs)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("кадрів").font(.caption2).foregroundStyle(.secondary)
+                        Text("\(session.framesSent)").font(.system(.callout, design: .monospaced))
+                    }
+                    Button("Скинути", action: session.resetStats)
+                        .font(.caption)
+                        .disabled(session.echoesReceived == 0)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(22)
+            .background(Color(white: 0.13), in: RoundedRectangle(cornerRadius: 18))
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 
     private func metric(_ label: String, _ value: Double) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.caption2).foregroundStyle(.secondary)
-            Text(value > 0 ? String(format: "%.1f ms", value) : "—")
-                .font(.system(.body, design: .monospaced))
+            Text(value > 0 ? String(format: "%.1f", value) : "—")
+                .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(colorForLatency(value))
         }
     }
@@ -93,30 +146,6 @@ struct ContentView: View {
         }
     }
 
-    private var surface: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 18)
-                .fill(Color(white: 0.12))
-
-            if session.state != .connected {
-                Text("not connected")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            TouchSurface(
-                onFrame: { contacts, timestamp in
-                    session.send(contacts: contacts, timestamp: timestamp)
-                },
-                onLayout: { points, scale in
-                    session.updateSurface(points: points, scale: scale)
-                }
-            )
-        }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
-    }
-
     private var statusColor: Color {
         switch session.state {
         case .connected: .green
@@ -128,9 +157,9 @@ struct ContentView: View {
 
     private var statusText: String {
         switch session.state {
-        case .idle: "idle"
-        case .connecting: "connecting…"
-        case .connected: "connected · \(session.echoesReceived) echoes"
+        case .idle: "не підключено"
+        case .connecting: "підключення…"
+        case .connected: "підключено · \(session.echoesReceived) відлунь"
         case .failed(let message): message
         }
     }

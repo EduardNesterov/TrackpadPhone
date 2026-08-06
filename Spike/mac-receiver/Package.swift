@@ -12,7 +12,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "mac-receiver",
-            dependencies: [.product(name: "TrackpadProtocol", package: "TrackpadKit")],
+            dependencies: [
+                .product(name: "TrackpadProtocol", package: "TrackpadKit"),
+                .product(name: "TrackpadInput", package: "TrackpadKit"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
