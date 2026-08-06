@@ -42,19 +42,43 @@ cd Spike/mac-receiver && swift run mac-receiver
 
 ### 2. iPhone
 
-Сначала **однократно**: Xcode → Settings → Accounts → добавить свой Apple ID. Без этого
-сборка под устройство падает с `No Account for Team`.
+Сборка и установка без Xcode:
 
 ```bash
-open TrackpadPhone.xcodeproj
+xcodebuild -project TrackpadPhone.xcodeproj -scheme TrackpadPhoneiOS \
+  -destination 'generic/platform=iOS' -allowProvisioningUpdates build
 ```
 
-Выбрать iPhone как назначение и запустить (⌘R). На телефоне: Settings → General → VPN &
-Device Management → доверять сертификату разработчика.
+```bash
+xcrun devicectl list devices
+```
+
+```bash
+xcrun devicectl device install app --device <UDID> \
+  ~/Library/Developer/Xcode/DerivedData/TrackpadPhone-*/Build/Products/Debug-iphoneos/TrackpadPhone.app
+```
+
+**Первый запуск потребует доверия на самом телефоне**, иначе система откажет с
+`invalid code signature … profile has not been explicitly trusted`:
+
+> Настройки → Основные → VPN и управление устройством → приложение разработчика → Доверять
 
 Дальше — ввести адрес Mac, нажать Connect, водить пальцем.
 
-С бесплатным аккаунтом профиль живёт **7 дней**, потом приложение надо переустановить.
+Профиль бесплатного аккаунта живёт **7 дней** (текущий — до 13 августа 2026), потом
+приложение надо переустановить той же командой.
+
+#### Подводный камень: DEVELOPMENT_TEAM
+
+Team ID — это поле **OU** в сертификате, а не значение в скобках после имени. Значение в
+скобках относится к самому сертификату, и подстановка его в `DEVELOPMENT_TEAM` даёт сбивающую
+с толку ошибку `No Account for Team`, которая выглядит как отсутствие аккаунта в Xcode:
+
+```bash
+security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject
+```
+
+`/UID=…/CN=Apple Development: почта (ЭТО НЕ TEAM ID)/OU=ВОТ TEAM ID/O=…`
 
 ### Проверка Mac-части без телефона
 
