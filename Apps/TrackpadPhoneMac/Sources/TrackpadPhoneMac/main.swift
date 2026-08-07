@@ -159,7 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ))
             menu.addItem(disabled(settings.edgePushSpeed < 1
                 ? "   вимкнено"
-                : "   тягнеш до краю — їде далі само"))
+                : "   тягнеш до краю — їде далі само й розганяється"))
         }
 
         menu.addItem(.separator())

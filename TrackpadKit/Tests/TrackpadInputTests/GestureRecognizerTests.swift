@@ -403,9 +403,32 @@ struct GestureTests {
         #expect(events.zooms.count > duringGesture, "the coast must add steps of its own")
 
         // And it comes to a stop rather than running for ever.
+        for _ in 0 ..< 480 { events += recognizer.tick(elapsed: 1.0 / 120) }
         let afterCoast = events.zooms.count
         for _ in 0 ..< 240 { events += recognizer.tick(elapsed: 1.0 / 120) }
         #expect(events.zooms.count == afterCoast)
+    }
+
+    /// The coast has to survive an ordinary pinch, not only a throw — and most real pinches
+    /// are ordinary, because there are only about forty millimetres of spread in a hand.
+    /// Judging both "is this worth coasting" and "has the coast finished" by one number made
+    /// every one of them stop where it started.
+    @Test("An unhurried pinch coasts too")
+    func modestPinchCoasts() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 75)
+        stream.place(1, xMM: 40, yMM: 75)
+        stream.hold(0.02)
+        stream.pinch(byMM: 12, over: 0.2)   // 60 mm/s of separation, not a throw
+        stream.lift(1)
+        stream.lift(0)
+
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        let duringGesture = events.zooms.count
+
+        for _ in 0 ..< 60 { events += recognizer.tick(elapsed: 1.0 / 120) }
+        #expect(events.zooms.count > duringGesture)
     }
 
     /// The flick question again: fingers that had come to rest were placing the zoom
@@ -560,6 +583,23 @@ struct ThreeFingerDragTests {
         stream.hold(0.02)
         stream.moveAll(dxMM: dxMM, dyMM: dyMM, over: 0.2)
         return stream
+    }
+
+    /// The phone as it is actually held: sideways, and measured off the wire —
+    /// `hello: surface 139.8 × 64.6 mm`. Worth spelling out rather than reaching for the
+    /// upright default, because the whole point of the sideways push is that the axis with
+    /// the *most* glass on it is the one the screen runs out of first.
+    private static let landscape = SurfaceGeometry(widthMM: 140, heightMM: 65)
+
+    /// Half a second of pushing is worth more than half a second of the starting rate,
+    /// because the push ramps. This converts one to the other from the same numbers the
+    /// recogniser ramps on, so tuning them does not turn into arithmetic in every test.
+    private func rampedSeconds(_ seconds: Double, _ config: GestureConfig = GestureConfig()) -> Double {
+        let ramping = min(seconds, config.dragEdgePushRampSeconds)
+        let flat = max(0, seconds - config.dragEdgePushRampSeconds)
+        let averageWhileRamping = 1
+            + (config.dragEdgePushRampMax - 1) * ramping / config.dragEdgePushRampSeconds / 2
+        return ramping * averageWhileRamping + flat * config.dragEdgePushRampMax
     }
 
     @Test("Three fingers moving pick the pointer up and carry it")
@@ -758,53 +798,89 @@ struct ThreeFingerDragTests {
         for _ in 0 ..< 20 { events += recognizer.tick(elapsed: 0.025) }
         let afterPush = events.totalMoveMM.y
 
-        // Half a second, four millimetres from the border of a 150-mm surface, so six
-        // tenths of the way into a ten-millimetre zone. Expressed against the configured
-        // rate rather than as a number, so tuning the default does not fail the test.
-        let expected = GestureConfig().dragEdgePushMaxMMPerS * 0.6 * 0.5
+        // Four millimetres from the border of a 150-mm surface, so well into the zone.
+        // Expressed against the configured numbers rather than as a constant, so tuning a
+        // default does not fail the test.
+        let config = GestureConfig()
+        let margin = 150 * config.dragEdgePushMarginFraction
+        let expected = config.dragEdgePushMaxMMPerS
+            * (margin - 4) / margin
+            * rampedSeconds(0.5)
         #expect(afterPush - carried > expected * 0.8)
         #expect(afterPush - carried < expected * 1.2)
     }
 
-    /// Sideways is where the surface runs out first: 70 mm of glass is a few hundred points
-    /// of a desktop that is thousands wide, so carrying a window across it without this
-    /// means lifting and re-grabbing several times.
+    /// Sideways is where the screen runs out first: the phone is held with its long side
+    /// across, so a sweep of the *widest* axis of the glass is still only a few hundred
+    /// points of a desktop that is thousands wide.
     @Test("Fingers held against the side border keep the drag moving sideways")
     func edgePushCarriesTheDragSideways() {
-        var stream = TouchStreamBuilder()
-        stream.place(0, xMM: 20, yMM: 75)
-        stream.place(1, xMM: 30, yMM: 75)
-        stream.place(2, xMM: 40, yMM: 75)
+        var stream = TouchStreamBuilder(surface: Self.landscape)
+        stream.place(0, xMM: 40, yMM: 32)
+        stream.place(1, xMM: 60, yMM: 32)
+        stream.place(2, xMM: 80, yMM: 32)
         stream.hold(0.02)
-        stream.moveAll(dxMM: 28, dyMM: 0, over: 0.15)   // leading finger to x = 68 of 70
+        stream.moveAll(dxMM: 50, dyMM: 0, over: 0.2)   // leading finger to x = 130 of 140
         stream.hold(0.1)
 
-        let recognizer = GestureRecognizer()
+        let recognizer = GestureRecognizer(surface: Self.landscape)
         var events = recognizer.run(stream)
         let carried = events.totalMoveMM.x
 
         for _ in 0 ..< 20 { events += recognizer.tick(elapsed: 0.025) }
         let afterPush = events.totalMoveMM.x
 
-        // Half a second, two millimetres from the border, so two thirds of the way into a
-        // six-millimetre zone.
-        let expected = GestureConfig().dragEdgePushMaxMMPerS * (2.0 / 3) * 0.5
+        let config = GestureConfig()
+        let margin = Self.landscape.widthMM * config.dragEdgePushMarginFraction
+        let expected = config.dragEdgePushMaxMMPerS
+            * (margin - 10) / margin
+            * rampedSeconds(0.5)
         #expect(afterPush - carried > expected * 0.8)
         #expect(afterPush - carried < expected * 1.2)
         #expect(abs(events.totalMoveMM.y) < 0.001, "and nothing is pushed down the surface")
     }
 
-    @Test("Nothing is pushed sideways from the middle of the surface")
-    func noSidePushAwayFromTheBorder() {
-        var stream = TouchStreamBuilder()
-        stream.place(0, xMM: 10, yMM: 75)
-        stream.place(1, xMM: 20, yMM: 75)
-        stream.place(2, xMM: 30, yMM: 75)
+    /// Nudging an icon into place and carrying a window across a desktop are the same
+    /// gesture with different amounts of patience behind them. One rate cannot serve both,
+    /// so the push builds while the hand keeps pressing.
+    @Test("The longer a hand presses into the border, the faster the drag travels")
+    func edgePushRampsWhileTheHandKeepsPressing() {
+        var stream = TouchStreamBuilder(surface: Self.landscape)
+        stream.place(0, xMM: 40, yMM: 32)
+        stream.place(1, xMM: 60, yMM: 32)
+        stream.place(2, xMM: 80, yMM: 32)
         stream.hold(0.02)
-        stream.moveAll(dxMM: 15, dyMM: 0, over: 0.15)   // leading finger to x = 45 of 70
+        stream.moveAll(dxMM: 50, dyMM: 0, over: 0.2)
         stream.hold(0.1)
 
-        let recognizer = GestureRecognizer()
+        let recognizer = GestureRecognizer(surface: Self.landscape)
+        var events = recognizer.run(stream)
+
+        func travelOverAQuarterSecond() -> Double {
+            let before = events.totalMoveMM.x
+            for _ in 0 ..< 10 { events += recognizer.tick(elapsed: 0.025) }
+            return events.totalMoveMM.x - before
+        }
+
+        let first = travelOverAQuarterSecond()
+        for _ in 0 ..< 30 { events += recognizer.tick(elapsed: 0.025) }   // keep pressing
+        let later = travelOverAQuarterSecond()
+
+        #expect(later > first * 2.5, "a hand that stays at the border gets carried")
+        #expect(later < first * GestureConfig().dragEdgePushRampMax, "but not without limit")
+    }
+
+    @Test("Nothing is pushed sideways from the middle of the surface")
+    func noSidePushAwayFromTheBorder() {
+        var stream = TouchStreamBuilder(surface: Self.landscape)
+        stream.place(0, xMM: 20, yMM: 32)
+        stream.place(1, xMM: 40, yMM: 32)
+        stream.place(2, xMM: 60, yMM: 32)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 25, dyMM: 0, over: 0.2)   // leading finger to x = 85 of 140
+        stream.hold(0.1)
+
+        let recognizer = GestureRecognizer(surface: Self.landscape)
         var events = recognizer.run(stream)
         let carried = events.totalMoveMM.x
 
@@ -812,20 +888,19 @@ struct ThreeFingerDragTests {
         #expect(abs(events.totalMoveMM.x - carried) < 0.001)
     }
 
-    /// The mirror of the vertical rule, and the one that matters most sideways: three
-    /// fingers span half the width, so the trailing finger is near the *left* border while
-    /// the hand travels right. Pushing on that would drag everything backwards.
+    /// The mirror of the vertical rule: while the hand travels right, its trailing finger
+    /// is the one nearest the *left* border. Pushing on that would drag everything backwards.
     @Test("A hand heading away from the side border is not pushed into it")
     func noSidePushAgainstTheHand() {
-        var stream = TouchStreamBuilder()
-        stream.place(0, xMM: 20, yMM: 75)
-        stream.place(1, xMM: 30, yMM: 75)
-        stream.place(2, xMM: 40, yMM: 75)
+        var stream = TouchStreamBuilder(surface: Self.landscape)
+        stream.place(0, xMM: 40, yMM: 32)
+        stream.place(1, xMM: 60, yMM: 32)
+        stream.place(2, xMM: 80, yMM: 32)
         stream.hold(0.02)
-        stream.moveAll(dxMM: 28, dyMM: 0, over: 0.15)
-        stream.moveAll(dxMM: -4, dyMM: 0, over: 0.05)   // still inside the zone, going back
+        stream.moveAll(dxMM: 50, dyMM: 0, over: 0.2)
+        stream.moveAll(dxMM: -6, dyMM: 0, over: 0.05)   // still inside the zone, going back
 
-        let recognizer = GestureRecognizer()
+        let recognizer = GestureRecognizer(surface: Self.landscape)
         var events = recognizer.run(stream)
         let carried = events.totalMoveMM.x
 
@@ -833,20 +908,20 @@ struct ThreeFingerDragTests {
         #expect(abs(events.totalMoveMM.x - carried) < 0.001)
     }
 
-    /// Three fingers cover half the width of a phone, so a hand that never meant to go
-    /// sideways is inside the side zone as a matter of course. Being there must not be
-    /// enough — otherwise a drag aimed straight down crabs across the screen.
+    /// A hand can be parked at one side of the surface with no intention of going that way.
+    /// Being inside the zone must not be enough on its own — otherwise a drag aimed straight
+    /// down crabs across the screen.
     @Test("A hand that lands in the side zone but drags elsewhere is not pushed sideways")
     func noSidePushForAHandThatMerelyLandsThere() {
-        var stream = TouchStreamBuilder()
-        stream.place(0, xMM: 38, yMM: 40)
-        stream.place(1, xMM: 53, yMM: 40)
-        stream.place(2, xMM: 68, yMM: 40)      // already 2 mm from the right border
+        var stream = TouchStreamBuilder(surface: Self.landscape)
+        stream.place(0, xMM: 95, yMM: 15)
+        stream.place(1, xMM: 115, yMM: 15)
+        stream.place(2, xMM: 135, yMM: 15)     // already 5 mm from the right border
         stream.hold(0.02)
         stream.moveAll(dxMM: 0, dyMM: 20, over: 0.15)   // and heading straight down
         stream.hold(0.1)
 
-        let recognizer = GestureRecognizer()
+        let recognizer = GestureRecognizer(surface: Self.landscape)
         var events = recognizer.run(stream)
         let carried = events.totalMoveMM.x
 

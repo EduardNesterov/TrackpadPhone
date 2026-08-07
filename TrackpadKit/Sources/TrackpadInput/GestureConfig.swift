@@ -65,11 +65,23 @@ public struct GestureConfig: Sendable, Equatable {
     ///
     /// The same distinction the scroll flick makes: fingers that had already come to rest
     /// were placing the zoom exactly where it is, and coasting past it would be the surface
-    /// disagreeing with the hand.
-    public var zoomMomentumMinSpeedMMPerS: Double = 45
-    /// Fraction of the pinch speed left after a second of coasting. Shorter than the
-    /// scroll's, because overshooting a zoom is harder to correct than overshooting a page.
-    public var zoomMomentumDecayPerSecond: Double = 0.012
+    /// disagreeing with the hand. Lower than the scroll's, and deliberately: a pinch has
+    /// forty millimetres of hand in it rather than a whole arm, so most real ones are slower
+    /// than a scroll flick and the scroll's bar would refuse nearly every one.
+    public var zoomMomentumMinSpeedMMPerS: Double = 25
+    /// Where the coast finally comes to rest — a different question from whether to start
+    /// one, and a separate number for exactly that reason.
+    ///
+    /// These were one number, which meant the coast ended the instant it began: a pinch that
+    /// had just cleared the bar to start was already under the bar to stop. Only a throw
+    /// several times over the threshold coasted visibly at all, and that is precisely what
+    /// "inertia does not work on small pinches" looked like from the hand.
+    public var zoomMomentumStopSpeedMMPerS: Double = 6
+    /// Fraction of the pinch speed left after a second of coasting. A little shorter than
+    /// the scroll's, because overshooting a zoom is harder to correct than overshooting a
+    /// page — but only a little: what looked like a taste for very short coasts was the stop
+    /// speed above cutting every one of them off.
+    public var zoomMomentumDecayPerSecond: Double = 0.05
 
     // MARK: Three fingers
 
@@ -85,31 +97,42 @@ public struct GestureConfig: Sendable, Equatable {
     /// because three fingers rest steadier than one, and a drag that hesitates before it
     /// picks anything up feels like the surface is stuck.
     public var dragSlopMM: Double = 1.5
-    /// How close to the top or bottom border the fingers must be for the drag to keep
-    /// travelling on its own. Zero turns it off.
+    /// How much of each border the drag keeps travelling in, as a fraction of the surface
+    /// along that axis. Zero turns it off.
     ///
-    /// Selecting text down a long page runs out of surface long before it runs out of page.
-    /// The pointer is *pushed* rather than the view scrolled, because a synthesised scroll
-    /// would not arrive: while an AppKit application is tracking a mouse drag it runs its
-    /// own event loop taking only dragged and up events, so wheel events sit in the queue
-    /// until the drag is over. Every one of those applications already scrolls itself when
-    /// the pointer reaches the edge of its view — and it extends the selection correctly
-    /// while doing so, which nothing outside the application could do as well.
-    public var dragEdgePushMarginMM: Double = 10
-    /// The same, sideways, and smaller on purpose.
+    /// Selecting text down a long page runs out of surface long before it runs out of page,
+    /// and carrying a window across a desktop runs out of it sideways sooner still. The
+    /// pointer is *pushed* rather than the view scrolled, because a synthesised scroll would
+    /// not arrive: while an AppKit application is tracking a mouse drag it runs its own event
+    /// loop taking only dragged and up events, so wheel events sit in the queue until the
+    /// drag is over. Every one of those applications already scrolls itself when the pointer
+    /// reaches the edge of its view — and it extends the selection correctly while doing so,
+    /// which nothing outside the application could do as well.
     ///
-    /// Three fingers lie in a row across the *width* of the surface, so the outermost one
-    /// starts within twenty millimetres of a side border and the hand has only that much
-    /// travel in hand to begin with. A ten-millimetre zone there would be half the room,
-    /// and the push would take over long before the hand had run out. The vertical margin
-    /// costs nothing by comparison: the same three fingers occupy one band of a 150-mm
-    /// surface, so ten millimetres is a genuine edge.
-    public var dragEdgePushSideMarginMM: Double = 6
+    /// A fraction rather than millimetres, and that is the whole correction here. The zone
+    /// is one thing measured two ways: how much of the hand's remaining travel to hand over
+    /// to the push. Three fingers occupy one band of the surface, so what is left to travel
+    /// is what is left of the surface — the same share of a phone held sideways (140 × 65 mm
+    /// measured) as of one held upright, where the axes swap. A fixed ten millimetres was
+    /// tuned against the upright figure and left a *sixth* of that zone sideways, which is
+    /// why the sideways push read as not working at all.
+    public var dragEdgePushMarginFraction: Double = 0.15
     /// Travel per second at the very border, tapering to nothing at the edge of the zone,
     /// so the push arrives gradually instead of snatching the pointer. Zero turns it off,
     /// and the menu has a slider for it — how fast a page should run past is taste, and
     /// depends on the page.
     public var dragEdgePushMaxMMPerS: Double = 30
+    /// How long a hand has to keep pressing into the border before the push reaches its top
+    /// speed, and how many times the starting rate that is.
+    ///
+    /// Nudging an icon into place and carrying a window across a desktop are the same
+    /// gesture with different amounts of patience behind them, and one speed cannot serve
+    /// both: enough to cross a 2560-point screen would shove the icon past its target, and
+    /// gentle enough to place it takes half a minute to cross. Ramping asks nothing of the
+    /// user and answers both — the first moments are gentle, and a hand that stays gets
+    /// carried. macOS's own edge autoscroll does the same thing.
+    public var dragEdgePushRampSeconds: Double = 1.2
+    public var dragEdgePushRampMax: Double = 5
     /// Slow dragging is read at no less than this speed.
     ///
     /// The acceleration curve damps to 0.4× down at the bottom, which is what makes a pixel

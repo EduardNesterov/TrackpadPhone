@@ -139,6 +139,7 @@ public final class GestureRecognizer {
         regrabTouchedAt = nil
         lastDragPoints = []
         edgePushLatch = Vec()
+        edgePushHeld = Vec()
         framedSinceTick = 0
         tickedSinceFrame = 0
     }
@@ -160,6 +161,7 @@ public final class GestureRecognizer {
         regrabTouchedAt = nil
         lastDragPoints = []
         edgePushLatch = Vec()
+        edgePushHeld = Vec()
     }
 
     /// Frame time already counted since the last tick, so the two clocks do not both pay
@@ -528,7 +530,12 @@ public final class GestureRecognizer {
     /// the hand.
     private func startZoomMomentum() -> [InputEvent] {
         zoomMomentum.decayPerSecond = config.zoomMomentumDecayPerSecond
-        zoomMomentum.stopSpeedMMPerS = config.zoomMomentumMinSpeedMMPerS
+        // Where the coast *stops*, which is not the speed it takes to *start* one. Setting
+        // both from the same number made the coast end where it began: a pinch that had only
+        // just earned inertia was already slow enough to be finished, so anything short of a
+        // hard throw produced a coast a few tens of milliseconds long — invisible, and read
+        // from the hand as small pinches having no inertia at all.
+        zoomMomentum.stopSpeedMMPerS = config.zoomMomentumStopSpeedMMPerS
         guard let exit = pinchTracker.velocity(at: now),
               abs(exit.x) >= config.zoomMomentumMinSpeedMMPerS else { return [] }
         zoomMomentum.start(velocityX: exit.x, velocityY: 0)
@@ -612,6 +619,7 @@ public final class GestureRecognizer {
             pointerVelocity.reset()
             speedSmoother.reset()
             edgePushLatch = Vec()
+            edgePushHeld = Vec()
             // Down first, then the travel since touch-down: the press has to land where the
             // cursor still is, or the drag starts by missing what it was aimed at.
             return [
@@ -654,6 +662,7 @@ public final class GestureRecognizer {
                 // A new grip earns its own push: the old one was latched onto a border this
                 // hand may have landed nowhere near.
                 edgePushLatch = Vec()
+                edgePushHeld = Vec()
                 return []
             }
 
@@ -697,7 +706,18 @@ public final class GestureRecognizer {
     /// extends the selection while it does, which is the part nothing outside it could get
     /// right.
     private func edgePush(elapsed: Double) -> [InputEvent] {
-        guard elapsed > 0, let rate = edgePushRate() else { return [] }
+        guard elapsed > 0, let base = edgePushRate() else {
+            edgePushHeld = Vec()
+            return []
+        }
+        // Each axis builds its own patience, so a hand that has been pressing right for a
+        // second does not start downwards already at full speed.
+        edgePushHeld.x = base.x == 0 ? 0 : edgePushHeld.x + elapsed
+        edgePushHeld.y = base.y == 0 ? 0 : edgePushHeld.y + elapsed
+        let rate = Vec(
+            x: base.x * edgePushRamp(heldFor: edgePushHeld.x),
+            y: base.y * edgePushRamp(heldFor: edgePushHeld.y)
+        )
         // `lastCentroid` is deliberately left alone: it is where the *fingers* are, and the
         // next frame measures against it. Advancing it by the push made every frame report
         // the push back as movement in the opposite direction — the pointer shook in place
@@ -717,16 +737,29 @@ public final class GestureRecognizer {
     /// takes the surface, so the push is something a hand earns rather than something it
     /// inherits.
     private var edgePushLatch = Vec()
+    /// Seconds each axis has been pressing into its border, which is what the push ramps on.
+    private var edgePushHeld = Vec()
+
+    /// How much the push has built up after this long against the border.
+    ///
+    /// Linear from the starting rate to `dragEdgePushRampMax` times it. A hand nudging
+    /// something into place lets go inside the first moments and never feels the top speed;
+    /// a hand carrying a window across a desktop keeps pressing and gets it.
+    private func edgePushRamp(heldFor held: Double) -> Double {
+        guard config.dragEdgePushRampSeconds > 0 else { return 1 }
+        let progress = min(1, max(0, held) / config.dragEdgePushRampSeconds)
+        return 1 + (config.dragEdgePushRampMax - 1) * progress
+    }
 
     /// Decides which border, if any, the drag is pressing into.
     ///
     /// Two different questions, which is why the latch exists at all. *Starting* a push takes
-    /// a hand actually travelling towards the border — sideways especially, because three
-    /// fingers span half the width of a phone and end up inside the side zone without meaning
-    /// anything by it, and a drag aimed straight down would then crab across the screen.
-    /// *Continuing* one only takes the hand not turning back: pressing into the border and
-    /// holding there is the whole gesture, and the speed estimate reads zero within a couple
-    /// of frames of the hand stopping.
+    /// a hand actually travelling towards the border: a hand can be inside the zone with no
+    /// intention of going that way — parked at one side of the surface and dragging straight
+    /// down — and pushing it would crab the drag sideways across the screen. *Continuing* one
+    /// only takes the hand not turning back: pressing into the border and holding there is
+    /// the whole gesture, and the speed estimate reads zero within a couple of frames of the
+    /// hand stopping.
     ///
     /// Called from the frames rather than from the tick that asks for the push, because
     /// frames are where movement is visible. Judged at push time, the hand is already at rest
@@ -734,10 +767,21 @@ public final class GestureRecognizer {
     private func updateEdgePushLatch() {
         guard let box = dragBounds() else { return }
         let heading = pointerVelocity.displacement
+        let margin = edgePushMargins
         latch(&edgePushLatch.x, ahead: box.aheadX, behind: box.behindX,
-              margin: config.dragEdgePushSideMarginMM, heading: heading.x)
+              margin: margin.x, heading: heading.x)
         latch(&edgePushLatch.y, ahead: box.aheadY, behind: box.behindY,
-              margin: config.dragEdgePushMarginMM, heading: heading.y)
+              margin: margin.y, heading: heading.y)
+    }
+
+    /// The push zone on each axis, in millimetres of *this* surface. Held as a share of the
+    /// surface rather than as a distance so that it means the same thing when the phone is
+    /// turned and the two axes swap length.
+    private var edgePushMargins: Vec {
+        Vec(
+            x: surface.widthMM * config.dragEdgePushMarginFraction,
+            y: surface.heightMM * config.dragEdgePushMarginFraction
+        )
     }
 
     /// Half a millimetre over the trailing window is the line between travelling and
@@ -773,11 +817,12 @@ public final class GestureRecognizer {
     /// case and needs no special handling.
     private func edgePushRate() -> Vec? {
         guard config.dragEdgePushMaxMMPerS > 0, let box = dragBounds() else { return nil }
+        let margin = edgePushMargins
         let push = Vec(
             x: taperedRate(edgePushLatch.x, ahead: box.aheadX, behind: box.behindX,
-                           margin: config.dragEdgePushSideMarginMM),
+                           margin: margin.x),
             y: taperedRate(edgePushLatch.y, ahead: box.aheadY, behind: box.behindY,
-                           margin: config.dragEdgePushMarginMM)
+                           margin: margin.y)
         )
         return push == Vec() ? nil : push
     }
