@@ -88,6 +88,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.runModifierProbe()
         }
 
+        // The way out of a chicken-and-egg problem: a phone that is not paired yet cannot
+        // move the pointer, and the menu item that shows it the code has to be clicked with
+        // one. A notification can be sent from a Terminal opened with ⌘Space and typed into
+        // with the keyboard, so there is always a route that needs no pointer at all:
+        //   osascript -e 'do shell script "..."'  — or simply:
+        //   /usr/bin/osascript -e 'tell application id "com.apple.systemevents"' …
+        // The short form is in README under pairing.
+        DistributedNotificationCenter.default().addObserver(
+            forName: .init("TrackpadPhone.pair"), object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.showPairingCode()
+        }
+
         refreshMenu()
         // Ask on first launch. Afterwards the menu carries the reminder, because a modal
         // prompt on every launch would be worse than useless.
