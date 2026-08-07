@@ -2,25 +2,36 @@ import Foundation
 import Network
 import TrackpadProtocol
 
-/// UDP listener. No discovery, no encryption, no pairing — M0 exists to produce a
-/// latency number, and each of those would only add ways for it to fail.
+/// UDP listener. No discovery, no encryption, no pairing yet — that is M1.
 ///
 /// Everything runs on `queue`, so the mutable state below is single-threaded despite
 /// the class being handed to Network's callbacks.
-final class Receiver: @unchecked Sendable {
+public final class Receiver: @unchecked Sendable {
+    public enum Status: Equatable, Sendable {
+        case starting
+        case listening
+        case connected
+        case failed(String)
+    }
+
+    /// Reported on the receiver's queue; the menu bar hops to the main actor itself.
+    public var onStatus: (@Sendable (Status) -> Void)?
+    /// Per-second throughput line. Wanted by the command-line tool, noise in an app.
+    public var logsStatistics = true
+
     private let queue: DispatchQueue
     private let session: Session
     private let port: NWEndpoint.Port
     private var listener: NWListener?
     private var connections: [NWConnection] = []
 
-    init(session: Session, port: UInt16, queue: DispatchQueue) {
+    public init(session: Session, port: UInt16, queue: DispatchQueue) {
         self.session = session
         self.port = NWEndpoint.Port(rawValue: port)!
         self.queue = queue
     }
 
-    func start() throws {
+    public func start() throws {
         let params = NWParameters.udp
         params.allowLocalEndpointReuse = true
         // Enables AWDL, so this works over direct peer-to-peer Wi-Fi with no router.
@@ -33,14 +44,19 @@ final class Receiver: @unchecked Sendable {
             connection.start(queue: self.queue)
             self.receive(on: connection)
             print("peer connected: \(connection.endpoint)")
+            self.onStatus?(.connected)
         }
-        listener.stateUpdateHandler = { state in
+        listener.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
             switch state {
             case .ready:
                 print("listening on udp/\(self.port.rawValue)")
+                self.onStatus?(.listening)
             case .failed(let error):
+                // Never exit() from here. This is a library, and in the menu bar app that
+                // would kill the host process instead of surfacing a recoverable error.
                 print("listener failed: \(error)")
-                exit(1)
+                self.onStatus?(.failed(error.localizedDescription))
             default:
                 break
             }
@@ -103,7 +119,7 @@ final class Receiver: @unchecked Sendable {
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             let stats = self.session.drainStats()
-            guard stats.frames > 0 else { return }
+            guard self.logsStatistics, stats.frames > 0 else { return }
             let gaps = stats.interArrivalMs.sorted()
             let p50 = gaps.isEmpty ? 0 : gaps[gaps.count / 2]
             let p95 = gaps.isEmpty ? 0 : gaps[min(gaps.count - 1, Int(Double(gaps.count) * 0.95))]

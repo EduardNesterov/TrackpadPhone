@@ -6,11 +6,14 @@ import TrackpadInput
 ///
 /// This is the only file that knows about CoreGraphics — everything upstream deals in
 /// millimetres and intent, which is what keeps the gesture layer testable.
-final class EventSynthesizer {
-    var acceleration = AccelerationCurve()
+public final class EventSynthesizer {
+    public var acceleration = AccelerationCurve()
     /// Set from the system's own "natural scrolling" preference so scrolling agrees with
     /// whatever mouse or trackpad the user already has.
-    var naturalScrolling = true
+    public var naturalScrolling = true
+    /// Cursor points per millimetre of finger travel while scrolling. Held separately
+    /// from the config it starts from, so a slider can move it while the receiver runs.
+    public var scrollGain: Double
 
     private let source = CGEventSource(stateID: .hidSystemState)
     private let queue: DispatchQueue
@@ -27,9 +30,10 @@ final class EventSynthesizer {
     private var momentumTimer: DispatchSourceTimer?
     private var momentumRunning = false
 
-    init(queue: DispatchQueue, config: GestureConfig) {
+    public init(queue: DispatchQueue, config: GestureConfig) {
         self.queue = queue
         self.config = config
+        scrollGain = config.scrollGain
         bounds = EventSynthesizer.desktopBounds()
         position = CGEvent(source: nil)?.location ?? CGPoint(x: bounds.midX, y: bounds.midY)
         naturalScrolling = EventSynthesizer.systemNaturalScrolling()
@@ -37,7 +41,7 @@ final class EventSynthesizer {
 
     // MARK: - Entry point
 
-    func apply(_ event: InputEvent) {
+    public func apply(_ event: InputEvent) {
         switch event {
         case .move(let dx, let dy, let dt):
             cancelMomentum()
@@ -89,7 +93,7 @@ final class EventSynthesizer {
     }
 
     /// Re-read the real cursor position, so we don't fight a mouse the user just moved.
-    func resync() {
+    public func resync() {
         if let live = CGEvent(source: nil)?.location { position = live }
         residual = .zero
     }
@@ -153,8 +157,8 @@ final class EventSynthesizer {
         // Sign convention: dy > 0 means the fingers moved down the surface. With natural
         // scrolling the content follows the fingers, which is a positive wheel delta.
         let direction: Double = naturalScrolling ? 1 : -1
-        let deltaY = dyMM * config.scrollGain * direction
-        let deltaX = dxMM * config.scrollGain * direction
+        let deltaY = dyMM * scrollGain * direction
+        let deltaX = dxMM * scrollGain * direction
 
         guard let event = CGEvent(
             scrollWheelEvent2Source: source,
@@ -260,7 +264,7 @@ final class EventSynthesizer {
         return ids.reduce(CGRect.null) { $0.union(CGDisplayBounds($1)) }
     }
 
-    private static func systemNaturalScrolling() -> Bool {
+    public static func systemNaturalScrolling() -> Bool {
         let global = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)
         return global?["com.apple.swipescrolldirection"] as? Bool ?? true
     }

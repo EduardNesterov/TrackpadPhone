@@ -3,8 +3,8 @@ import Foundation
 /// M0 has no Bonjour discovery, so the phone needs an IP typed in by hand. Printing the
 /// candidates saves a trip to System Settings — and a manual-address path is worth keeping
 /// anyway as the fallback for when discovery fails on someone's network.
-enum LocalAddresses {
-    static func wifi() -> [String] {
+public enum LocalAddresses {
+    public static func wifi() -> [String] {
         var head: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&head) == 0, let first = head else { return [] }
         defer { freeifaddrs(head) }

@@ -1,6 +1,7 @@
 import ApplicationServices
 import Foundation
 import TrackpadInput
+import TrackpadMac
 
 // stdout is block-buffered when it is not a terminal, which silently swallows every
 // diagnostic the moment you pipe or redirect this. Line buffering costs nothing here.

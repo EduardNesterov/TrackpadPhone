@@ -6,3 +6,4 @@ xcuserdata/
 .swiftpm/
 Package.resolved
 __pycache__/
+dist/

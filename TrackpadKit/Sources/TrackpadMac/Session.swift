@@ -7,7 +7,7 @@ import TrackpadProtocol
 /// Deliberately thin. Deciding what fingers mean lives in `GestureRecognizer` and turning
 /// that into events lives in `EventSynthesizer`; this only guards the sequence numbers and
 /// keeps the statistics honest.
-final class Session {
+public final class Session {
     private let recognizer: GestureRecognizer
     private let synthesizer: EventSynthesizer
 
@@ -15,9 +15,9 @@ final class Session {
     private var lastSeq: UInt16?
     private var lastArrivalMs: Double?
 
-    private(set) var stats = Stats()
+    public private(set) var stats = Stats()
 
-    struct Stats {
+    public struct Stats {
         var frames = 0
         /// Frames thrown away on purpose: duplicates and out-of-order arrivals. Healthy.
         var discarded = 0
@@ -30,15 +30,15 @@ final class Session {
     /// Prints the contact count on every change plus each recognised event. The first
     /// question when a gesture misbehaves is always "how many fingers did the Mac
     /// actually receive", and guessing at it wastes far more time than this costs.
-    var debug = false
+    public var debug = false
     private var lastContactCount = -1
 
-    init(recognizer: GestureRecognizer, synthesizer: EventSynthesizer) {
+    public init(recognizer: GestureRecognizer, synthesizer: EventSynthesizer) {
         self.recognizer = recognizer
         self.synthesizer = synthesizer
     }
 
-    func handle(_ hello: Hello) {
+    public func handle(_ hello: Hello) {
         recognizer.surface = SurfaceGeometry(
             widthMM: Double(hello.surfaceWidthMM),
             heightMM: Double(hello.surfaceHeightMM)
@@ -59,7 +59,7 @@ final class Session {
 
     /// - Returns: false if the frame was a duplicate or arrived out of order.
     @discardableResult
-    func handle(_ frame: TouchFrame, arrivedAtMs: Double) -> Bool {
+    public func handle(_ frame: TouchFrame, arrivedAtMs: Double) -> Bool {
         if let last = lastSeq, !isNewer(frame.seq, than: last) {
             stats.discarded += 1
             return false
@@ -93,7 +93,7 @@ final class Session {
         return true
     }
 
-    func drainStats() -> Stats {
+    public func drainStats() -> Stats {
         defer { stats = Stats() }
         return stats
     }
