@@ -104,6 +104,15 @@ public final class GestureRecognizer {
     /// cursor across the screen mid-drag.
     private var dragContacts = 0
     private var dragResumeDeadline: Double = -.infinity
+    /// When fingers came back during a held drag, to tell a re-grab from a hand that means
+    /// something else entirely.
+    private var regrabTouchedAt: Double?
+    /// Where the fingers were on the last frame that still had the whole hand carrying.
+    ///
+    /// Kept rather than read from the live contacts, because by the time the window has to
+    /// be chosen the hand is already leaving: the finger that reached the border may be the
+    /// one that went first, and a lost frame can take the whole hand away at once.
+    private var lastDragPoints: [Vec] = []
 
     public func reset() {
         phase = .idle
@@ -116,6 +125,8 @@ public final class GestureRecognizer {
         dragArmedUntil = -.infinity
         dragContacts = 0
         dragResumeDeadline = -.infinity
+        regrabTouchedAt = nil
+        lastDragPoints = []
         framedSinceTick = 0
     }
 
@@ -504,6 +515,7 @@ public final class GestureRecognizer {
                 dragResumeDeadline = now + resumeWindow()
                 return []
             }
+            lastDragPoints = tracked.values.map(\.current)
             guard count == dragContacts else {
                 dragContacts = count
                 lastCentroid = current
@@ -520,10 +532,32 @@ public final class GestureRecognizer {
                 phase = .threeFingerDragging
                 dragContacts = count
                 lastCentroid = current
+                regrabTouchedAt = nil
                 pointerVelocity.reset()
                 speedSmoother.reset()
                 return []
             }
+
+            // Fingers on the surface that are not on their way to three. Waiting out the
+            // window for them would leave the trackpad dead for its whole length, so the
+            // hand is taken at its word: whatever this is, it is not a re-grab.
+            if count > 0 {
+                let touchedAt = regrabTouchedAt ?? now
+                regrabTouchedAt = touchedAt
+                if now - touchedAt > config.dragRegrabTimeout {
+                    regrabTouchedAt = nil
+                    pointerVelocity.reset()
+                    speedSmoother.reset()
+                    // One finger carries on as an ordinary pointer from where it already
+                    // is — making it lift and touch again for nothing would be worse than
+                    // the wait it was let out of.
+                    phase = count == 1 ? .oneFinger : .ignoring
+                    return [.dragEnded]
+                }
+            } else {
+                regrabTouchedAt = nil
+            }
+
             guard now >= dragResumeDeadline else { return [] }
             phase = count == 0 ? .idle : .ignoring
             return [.dragEnded]
@@ -555,7 +589,7 @@ public final class GestureRecognizer {
     /// actually travelled along count — drifting a millimetre sideways is not running out of
     /// room in that direction.
     private func handIsAtBorder(heading: Vec) -> Bool {
-        let points = tracked.values.map(\.current)
+        let points = lastDragPoints
         guard !points.isEmpty else { return false }
 
         let margin = config.dragEdgeMarginMM

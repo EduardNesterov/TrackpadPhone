@@ -582,8 +582,11 @@ struct ThreeFingerDragTests {
         stream.lift(0)
         // Longer than the ordinary window, well inside the one for a re-grab.
         stream.hold(0.5)
+        // And the hand lands the way a hand does — one finger at a time.
         stream.place(0, xMM: 20, yMM: 40)
+        stream.hold(0.03)
         stream.place(1, xMM: 35, yMM: 40)
+        stream.hold(0.03)
         stream.place(2, xMM: 50, yMM: 40)
         stream.hold(0.02)
         stream.moveAll(dxMM: 0, dyMM: 25, over: 0.15)
@@ -593,6 +596,35 @@ struct ThreeFingerDragTests {
         let events = GestureRecognizer().run(stream)
         #expect(events.filter { $0 == .dragBegan }.count == 1, "the same drag, a new grip")
         #expect(events.filter { $0 == .dragEnded }.count == 1)
+    }
+
+    /// The long window would otherwise leave the trackpad dead for its whole length, since
+    /// a held drag swallows everything. A hand that touches the surface and does not make
+    /// three fingers is taken at its word.
+    @Test("A finger that is not making three lets go of the drag at once")
+    func aFingerThatIsNotARegrabDropsTheDrag() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 120)
+        stream.place(1, xMM: 35, yMM: 120)
+        stream.place(2, xMM: 50, yMM: 120)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: 28, over: 0.15)
+        stream.liftAll()
+        stream.hold(0.2)
+
+        // One finger, alone, going about its own business.
+        stream.place(0, xMM: 35, yMM: 80)
+        stream.hold(0.4)
+        stream.move(0, dxMM: 12, dyMM: 0, over: 0.1)
+        stream.liftAll()
+        stream.hold(0.2)
+
+        let events = GestureRecognizer().run(stream)
+        #expect(events.filter { $0 == .dragEnded }.count == 1)
+
+        // And it goes on to move the pointer, rather than being swallowed until it lifts.
+        let afterDrop = Array(events.drop { $0 != .dragEnded }.dropFirst())
+        #expect(abs(afterDrop.totalMoveMM.x - 12) < 1.0)
     }
 
     /// The long window is for running out of room, not for every lift. A drag that finishes

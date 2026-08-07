@@ -92,7 +92,16 @@ public struct GestureConfig: Sendable, Equatable {
     /// a hand that ran out of room is *pressed against the border it was heading for*, and
     /// a hand that is done is not. Getting the guess wrong is cheap in both directions —
     /// either the object hangs on for a moment, or it drops and gets picked up again.
-    public var dragEdgeResumeWindow: Double = 1.2
+    public var dragEdgeResumeWindow: Double = 5.0
+    /// Fingers back on the surface that have not made three within this long are not a
+    /// re-grab, and the drag lets go.
+    ///
+    /// This is what makes a five-second window affordable. While the button is held the
+    /// recogniser swallows everything — the surface is committed to a drag that may already
+    /// be over — and five seconds of a dead trackpad is not a price worth paying for a
+    /// window nobody uses every time. A real re-grab lands its three fingers inside about a
+    /// tenth of a second, so anything slower is a hand that means something else.
+    public var dragRegrabTimeout: Double = 0.3
     /// How close to the border counts as being against it.
     public var dragEdgeMarginMM: Double = 8
     /// Below this speed at lift-off the hand had already stopped, so it was finishing —
