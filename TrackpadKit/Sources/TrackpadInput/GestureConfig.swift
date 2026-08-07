@@ -53,7 +53,14 @@ public struct GestureConfig: Sendable, Equatable {
     /// Change in finger separation before two fingers commit to pinching instead of scrolling.
     public var pinchSlopMM: Double = 4.0
     /// Further separation change per additional zoom step.
-    public var pinchStepMM: Double = 8.0
+    ///
+    /// The surface is the thing that sets this. Two fingers on a phone have perhaps 40 mm of
+    /// spread in them before the hand has to be repositioned, so at eight millimetres a
+    /// notch a whole pinch bought five — and a zoom that needs three pinches to cross its
+    /// range reads as the gesture not working rather than as a slow setting. Smaller steps
+    /// are both faster and smoother, because the notch is what makes zoom visibly stepped.
+    /// The menu has a slider over it.
+    public var pinchStepMM: Double = 4.5
     /// Below this closing or opening speed at lift-off, a pinch just stops.
     ///
     /// The same distinction the scroll flick makes: fingers that had already come to rest
@@ -89,6 +96,15 @@ public struct GestureConfig: Sendable, Equatable {
     /// the pointer reaches the edge of its view — and it extends the selection correctly
     /// while doing so, which nothing outside the application could do as well.
     public var dragEdgePushMarginMM: Double = 10
+    /// The same, sideways, and smaller on purpose.
+    ///
+    /// Three fingers lie in a row across the *width* of the surface, so the outermost one
+    /// starts within twenty millimetres of a side border and the hand has only that much
+    /// travel in hand to begin with. A ten-millimetre zone there would be half the room,
+    /// and the push would take over long before the hand had run out. The vertical margin
+    /// costs nothing by comparison: the same three fingers occupy one band of a 150-mm
+    /// surface, so ten millimetres is a genuine edge.
+    public var dragEdgePushSideMarginMM: Double = 6
     /// Travel per second at the very border, tapering to nothing at the edge of the zone,
     /// so the push arrives gradually instead of snatching the pointer. Zero turns it off,
     /// and the menu has a slider for it — how fast a page should run past is taste, and

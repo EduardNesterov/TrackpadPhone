@@ -138,28 +138,53 @@ public final class GestureRecognizer {
         dragResumeDeadline = -.infinity
         regrabTouchedAt = nil
         lastDragPoints = []
+        edgePushLatch = Vec()
         framedSinceTick = 0
+        tickedSinceFrame = 0
+    }
+
+    /// Everything the gesture that just finished was holding, dropped the moment the surface
+    /// goes empty.
+    ///
+    /// Belt and braces against the one mistake this file has made in several shapes: a latch
+    /// set by one gesture being read by the next. Nothing a later touch legitimately needs
+    /// belongs here — the click chain and the arm a tap leaves for a drag are deliberately
+    /// left alone, because linking one touch to the next is exactly their job. Both are
+    /// bounded by the clock instead, which is the other half of this fix.
+    private func clearFinishedGesture() {
+        pointerVelocity.reset()
+        speedSmoother.reset()
+        pinchTracker.reset()
+        lastZoomStep = 0
+        dragContacts = 0
+        regrabTouchedAt = nil
+        lastDragPoints = []
+        edgePushLatch = Vec()
     }
 
     /// Frame time already counted since the last tick, so the two clocks do not both pay
     /// for the same milliseconds.
     private var framedSinceTick: Double = 0
+    /// And its mirror: tick time already counted since the last frame, so the gap that a
+    /// returning frame reports is not charged a second time either.
+    private var tickedSinceFrame: Double = 0
 
     /// Lets time pass while the phone is silent. Call it steadily; `elapsed` is real seconds.
     ///
-    /// Everything else here is driven by frames, deliberately — the phone's own clock cannot
-    /// be stretched by the network. The drag's re-grab window is the exception, because it
-    /// has to expire while the surface is *empty*, and an empty surface is exactly when the
-    /// phone stops sending. A frame-driven deadline there is one that may never arrive, and
-    /// it never did: the drag stayed picked up, swallowing every touch after it, until the
-    /// receiver's stall watchdog let go of the button a second and a half later. Shortening
-    /// the window changed nothing, because this deadline was never reached at all.
+    /// The recogniser's clock is otherwise driven by frames, deliberately — the phone's own
+    /// timestamps cannot be stretched by the network. But an empty surface sends no frames
+    /// at all, and windows that have to expire between gestures live exactly there: the
+    /// drag's re-grab, the arm a tap leaves for the drag half of a tap-and-a-half, the
+    /// double-click window. A frame-driven deadline in that gap is one that may never
+    /// arrive, and none of them did.
     ///
     /// Only the time frames did not already account for is added, so a hand still leaving
-    /// the surface — which does send frames — cannot make the window expire twice as fast.
+    /// the surface — which does send frames — cannot make a window expire twice as fast.
     public func tick(elapsed: Double) -> [InputEvent] {
         let unaccounted = max(0, elapsed - framedSinceTick)
         framedSinceTick = 0
+        now += unaccounted
+        tickedSinceFrame += unaccounted
 
         // The zoom coast runs on an empty surface, whatever the phase says.
         var events = coastZoom(elapsed: elapsed)
@@ -170,7 +195,6 @@ public final class GestureRecognizer {
         if phase == .threeFingerDragging { return events + edgePush(elapsed: elapsed) }
         guard phase == .threeFingerHeld else { return events }
 
-        now += unaccounted
         guard now >= dragResumeDeadline else { return events }
         phase = tracked.isEmpty ? .idle : .ignoring
         events.append(.dragEnded)
@@ -278,16 +302,26 @@ public final class GestureRecognizer {
     private var lastDelta: Double = 0
 
     private func advanceClock(_ sensorUs: UInt32) {
-        if let previous = lastSensorUs {
-            lastDelta = Double(sensorUs &- previous) / 1_000_000
-            // A gap this large means the finger rested; do not let it drive velocity.
-            if lastDelta > 1 { lastDelta = 0 }
-            now += lastDelta
-            framedSinceTick += lastDelta
-        } else {
+        defer { lastSensorUs = sensorUs }
+        guard let previous = lastSensorUs else {
             lastDelta = 0
+            return
         }
-        lastSensorUs = sensorUs
+        let gap = Double(sensorUs &- previous) / 1_000_000
+
+        // A gap this large is the hand having been away — the phone sends nothing while the
+        // surface is empty. Time still passed and the clock has to take it, or every window
+        // that expires *between* gestures never expires at all: the tap-drag arm stayed
+        // open, so the next touch to move picked the button up instead of pointing, and two
+        // taps a minute apart came out as a double click. What the gap must not do is drive
+        // velocity, because the finger did not travel across it.
+        lastDelta = gap > 1 ? 0 : gap
+
+        // Whatever the ticks already credited during the silence is not charged again.
+        let fresh = max(0, gap - tickedSinceFrame)
+        tickedSinceFrame = 0
+        now += fresh
+        framedSinceTick += fresh
     }
 
     private func updateTracked(_ positions: [UInt8: Vec]) {
@@ -323,9 +357,12 @@ public final class GestureRecognizer {
     // MARK: Zero fingers
 
     private func handleLiftOff() -> [InputEvent] {
+        // Runs after the return value is built, so the zoom coast still gets to read the
+        // pinch tracker on its way out.
         defer {
             phase = .idle
             velocityTracker.reset()
+            clearFinishedGesture()
         }
         switch phase {
         case .oneFinger:
@@ -574,6 +611,7 @@ public final class GestureRecognizer {
             lastCentroid = current
             pointerVelocity.reset()
             speedSmoother.reset()
+            edgePushLatch = Vec()
             // Down first, then the travel since touch-down: the press has to land where the
             // cursor still is, or the drag starts by missing what it was aimed at.
             return [
@@ -598,7 +636,10 @@ public final class GestureRecognizer {
             }
             let delta = current - lastCentroid
             lastCentroid = current
-            return [moveEvent(delta: delta, dt: dt, dragging: true)]
+            // After the move, so the latch reads a heading that includes this frame.
+            let carried = moveEvent(delta: delta, dt: dt, dragging: true)
+            updateEdgePushLatch()
+            return [carried]
 
         case .threeFingerHeld:
             if count >= 3 {
@@ -610,6 +651,9 @@ public final class GestureRecognizer {
                 regrabTouchedAt = nil
                 pointerVelocity.reset()
                 speedSmoother.reset()
+                // A new grip earns its own push: the old one was latched onto a border this
+                // hand may have landed nowhere near.
+                edgePushLatch = Vec()
                 return []
             }
 
@@ -642,14 +686,16 @@ public final class GestureRecognizer {
         }
     }
 
-    /// Keeps a drag travelling while the fingers are pinned against the top or bottom border.
+    /// Keeps a drag travelling while the fingers are pinned against a border.
     ///
-    /// Selecting down a long page runs out of surface long before it runs out of page. The
-    /// pointer is pushed on rather than the view scrolled: an application tracking a mouse
-    /// drag runs its own event loop that takes only dragged and up events, so a synthesised
-    /// wheel event would sit in the queue until the drag was over. Pushed to the edge of its
-    /// view, the application scrolls itself — and extends the selection while it does, which
-    /// is the part nothing outside it could get right.
+    /// Selecting down a long page runs out of surface long before it runs out of page, and a
+    /// window crossing a wide desktop runs out of it sideways even sooner — 70 mm of glass is
+    /// a few hundred points of screen. The pointer is pushed on rather than the view
+    /// scrolled: an application tracking a mouse drag runs its own event loop that takes only
+    /// dragged and up events, so a synthesised wheel event would sit in the queue until the
+    /// drag was over. Pushed to the edge of its view, the application scrolls itself — and
+    /// extends the selection while it does, which is the part nothing outside it could get
+    /// right.
     private func edgePush(elapsed: Double) -> [InputEvent] {
         guard elapsed > 0, let rate = edgePushRate() else { return [] }
         // `lastCentroid` is deliberately left alone: it is where the *fingers* are, and the
@@ -660,29 +706,91 @@ public final class GestureRecognizer {
         // Read at the curve's unity point rather than at the push rate, so screen travel
         // stays proportional to the ramp. Feeding the rate to a curve built for human hands
         // squared it: half-way into the zone moved a third as fast as the edge, not half.
-        return [.move(dxMM: 0, dyMM: rate * elapsed, speedMMPerS: config.dragSpeedFloorMMPerS)]
+        return [.move(
+            dxMM: rate.x * elapsed,
+            dyMM: rate.y * elapsed,
+            speedMMPerS: config.dragSpeedFloorMMPerS
+        )]
     }
 
-    /// Millimetres per second, positive downwards; nil when there is nothing to push.
-    ///
-    /// Tapers to zero at the edge of the zone, so entering it does not snatch the pointer.
-    /// A hand already heading away from the border is left alone — pushing back against
-    /// someone who has changed their mind would feel like the surface fighting them.
-    private func edgePushRate() -> Double? {
-        let margin = config.dragEdgePushMarginMM
-        guard margin > 0, config.dragEdgePushMaxMMPerS > 0 else { return nil }
-        let heights = lastDragPoints.map(\.y)
-        guard let nearestBottom = heights.max(), let nearestTop = heights.min() else { return nil }
+    /// Which border each axis has latched onto: −1, 0 or +1. Cleared whenever a fresh grip
+    /// takes the surface, so the push is something a hand earns rather than something it
+    /// inherits.
+    private var edgePushLatch = Vec()
 
-        let heading = pointerVelocity.displacement.y
-        let toBottom = surface.heightMM - nearestBottom
-        if toBottom <= margin, heading >= -0.5 {
-            return config.dragEdgePushMaxMMPerS * min(1, (margin - toBottom) / margin)
+    /// Decides which border, if any, the drag is pressing into.
+    ///
+    /// Two different questions, which is why the latch exists at all. *Starting* a push takes
+    /// a hand actually travelling towards the border — sideways especially, because three
+    /// fingers span half the width of a phone and end up inside the side zone without meaning
+    /// anything by it, and a drag aimed straight down would then crab across the screen.
+    /// *Continuing* one only takes the hand not turning back: pressing into the border and
+    /// holding there is the whole gesture, and the speed estimate reads zero within a couple
+    /// of frames of the hand stopping.
+    ///
+    /// Called from the frames rather than from the tick that asks for the push, because
+    /// frames are where movement is visible. Judged at push time, the hand is already at rest
+    /// against the border and nothing would ever latch.
+    private func updateEdgePushLatch() {
+        guard let box = dragBounds() else { return }
+        let heading = pointerVelocity.displacement
+        latch(&edgePushLatch.x, ahead: box.aheadX, behind: box.behindX,
+              margin: config.dragEdgePushSideMarginMM, heading: heading.x)
+        latch(&edgePushLatch.y, ahead: box.aheadY, behind: box.behindY,
+              margin: config.dragEdgePushMarginMM, heading: heading.y)
+    }
+
+    /// Half a millimetre over the trailing window is the line between travelling and
+    /// resting — small enough that a slow deliberate push still counts as one.
+    private func latch(
+        _ state: inout Double, ahead: Double, behind: Double, margin: Double, heading: Double
+    ) {
+        guard margin > 0 else {
+            state = 0
+            return
         }
-        if nearestTop <= margin, heading <= 0.5 {
-            return -config.dragEdgePushMaxMMPerS * min(1, (margin - nearestTop) / margin)
-        }
-        return nil
+        if state > 0, ahead > margin || heading < -0.5 { state = 0 }
+        if state < 0, behind > margin || heading > 0.5 { state = 0 }
+        guard state == 0 else { return }
+        if ahead <= margin, heading > 0.5 { state = 1 }
+        if behind <= margin, heading < -0.5 { state = -1 }
+    }
+
+    /// How much room the fingers have left in each direction, from the leading finger on
+    /// each side rather than from the centroid: three fingers hold the centroid in the
+    /// middle by construction, so it reaches a side border only once a finger has already
+    /// left the surface.
+    private func dragBounds() -> (aheadX: Double, behindX: Double, aheadY: Double, behindY: Double)? {
+        let xs = lastDragPoints.map(\.x)
+        let ys = lastDragPoints.map(\.y)
+        guard let left = xs.min(), let right = xs.max(),
+              let top = ys.min(), let bottom = ys.max() else { return nil }
+        return (surface.widthMM - right, left, surface.heightMM - bottom, top)
+    }
+
+    /// Millimetres per second along each axis, positive right and down; nil when there is
+    /// nothing to push. Both axes at once when the hand is cornered, which is the diagonal
+    /// case and needs no special handling.
+    private func edgePushRate() -> Vec? {
+        guard config.dragEdgePushMaxMMPerS > 0, let box = dragBounds() else { return nil }
+        let push = Vec(
+            x: taperedRate(edgePushLatch.x, ahead: box.aheadX, behind: box.behindX,
+                           margin: config.dragEdgePushSideMarginMM),
+            y: taperedRate(edgePushLatch.y, ahead: box.aheadY, behind: box.behindY,
+                           margin: config.dragEdgePushMarginMM)
+        )
+        return push == Vec() ? nil : push
+    }
+
+    /// Full rate at the very border, tapering to nothing at the edge of the zone, so
+    /// crossing into it does not snatch the pointer.
+    private func taperedRate(
+        _ latched: Double, ahead: Double, behind: Double, margin: Double
+    ) -> Double {
+        guard margin > 0 else { return 0 }
+        let room = latched > 0 ? ahead : behind
+        guard latched != 0 else { return 0 }
+        return latched * config.dragEdgePushMaxMMPerS * max(0, min(1, (margin - room) / margin))
     }
 
     /// How long to keep holding after the hand leaves.

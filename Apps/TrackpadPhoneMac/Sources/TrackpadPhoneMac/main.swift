@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         config.scrollGain = settings.scrollGain
         config.threeFingerDrag = settings.threeFingerDrag
         config.dragEdgePushMaxMMPerS = settings.edgePushSpeed
+        config.pinchStepMM = Settings.pinchStep(forZoomSpeed: settings.zoomSpeed)
 
         synthesizer = EventSynthesizer(queue: queue, config: config)
         synthesizer.acceleration.sensitivity = settings.sensitivity
@@ -126,6 +127,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(slider(
             "Швидкість прокрутки", value: settings.scrollGain,
             range: 4 ... 48, action: #selector(scrollGainChanged)
+        ))
+        menu.addItem(slider(
+            "Швидкість зуму (щипок)", value: settings.zoomSpeed,
+            range: 0.5 ... 3.0, action: #selector(zoomSpeedChanged)
         ))
 
         let invert = NSMenuItem(
@@ -247,6 +252,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.scrollGain = sender.doubleValue
         queue.async { [synthesizer, settings] in
             synthesizer?.scrollGain = settings.scrollGain
+        }
+        settings.save()
+    }
+
+    /// How much zoom a millimetre of spread is worth. Two fingers on a phone have about
+    /// forty millimetres of spread in them before the hand has to be repositioned, and how
+    /// much of a zoom range that ought to cover is taste — so it gets a slider, like the
+    /// pointer and the scroll.
+    @objc private func zoomSpeedChanged(_ sender: NSSlider) {
+        settings.zoomSpeed = sender.doubleValue
+        queue.async { [recognizer, settings] in
+            recognizer?.config.pinchStepMM = Settings.pinchStep(forZoomSpeed: settings.zoomSpeed)
         }
         settings.save()
     }
@@ -436,7 +453,16 @@ struct Settings {
     var invertScroll = false
     var threeFingerDrag = true
     var edgePushSpeed: Double = 30
+    /// A multiplier over the zoom's default feel rather than a threshold, so the number in
+    /// the recogniser can be retuned without stranding everyone's saved setting on the old
+    /// scale. One is whatever the default currently is; two is twice the zoom per pinch.
+    var zoomSpeed: Double = 1.0
     var hasPromptedForAccessibility = false
+
+    /// Millimetres of spread per zoom notch. Inverted: more speed is a shorter step.
+    static func pinchStep(forZoomSpeed speed: Double) -> Double {
+        GestureConfig().pinchStepMM / max(0.1, speed)
+    }
 
     static func load() -> Settings {
         let defaults = UserDefaults.standard
@@ -456,6 +482,9 @@ struct Settings {
         if defaults.object(forKey: "edgePushSpeed") != nil {
             settings.edgePushSpeed = defaults.double(forKey: "edgePushSpeed")
         }
+        if defaults.object(forKey: "zoomSpeed") != nil {
+            settings.zoomSpeed = defaults.double(forKey: "zoomSpeed")
+        }
         settings.hasPromptedForAccessibility = defaults.bool(forKey: "hasPromptedForAccessibility")
         return settings
     }
@@ -467,6 +496,7 @@ struct Settings {
         defaults.set(invertScroll, forKey: "invertScroll")
         defaults.set(threeFingerDrag, forKey: "threeFingerDrag")
         defaults.set(edgePushSpeed, forKey: "edgePushSpeed")
+        defaults.set(zoomSpeed, forKey: "zoomSpeed")
         defaults.set(hasPromptedForAccessibility, forKey: "hasPromptedForAccessibility")
     }
 }

@@ -146,6 +146,47 @@ struct ClickTests {
         #expect(events.contains(.dragEnded))
         #expect(events.totalMoveMM.x > 12)
     }
+
+    /// The window a tap opens for that drag is a quarter of a second — but the clock it was
+    /// measured against only moved while frames arrived, and the phone sends none once the
+    /// surface is empty. So the window never closed: the *next* touch to move picked the
+    /// button up instead of moving the pointer, however long after. In the log that caught
+    /// it, a tap and the drag it caused stood 77 seconds apart.
+    @Test("A touch long after a tap points, it does not drag")
+    func aTapDoesNotArmADragForever() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 35, yMM: 75)
+        stream.hold(0.04)
+        stream.liftAll()
+        stream.pause(3)
+        stream.place(1, xMM: 35, yMM: 75)
+        stream.move(1, dxMM: 15, dyMM: 0, over: 0.15)
+        stream.liftAll()
+
+        let events = GestureRecognizer().run(stream)
+        #expect(!events.contains(.dragBegan))
+        #expect(events.totalMoveMM.x > 12, "and it still moves the pointer normally")
+    }
+
+    /// The same frozen clock, seen from the other side. Two taps in the same spot are told
+    /// apart by time alone, so with the clock stopped the second one arrived carrying the
+    /// double click of the first — measured at five seconds.
+    @Test("Two taps with the hand away in between stay two single clicks")
+    func tapsSeparatedByASilentGapAreNotADoubleClick() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 35, yMM: 75)
+        stream.hold(0.04)
+        stream.liftAll()
+        stream.pause(3)
+        stream.place(1, xMM: 35, yMM: 75)
+        stream.hold(0.04)
+        stream.liftAll()
+
+        #expect(GestureRecognizer().run(stream).clicks == [
+            .click(.left, count: 1),
+            .click(.left, count: 1),
+        ])
+    }
 }
 
 @Suite("Scroll")
@@ -723,6 +764,94 @@ struct ThreeFingerDragTests {
         let expected = GestureConfig().dragEdgePushMaxMMPerS * 0.6 * 0.5
         #expect(afterPush - carried > expected * 0.8)
         #expect(afterPush - carried < expected * 1.2)
+    }
+
+    /// Sideways is where the surface runs out first: 70 mm of glass is a few hundred points
+    /// of a desktop that is thousands wide, so carrying a window across it without this
+    /// means lifting and re-grabbing several times.
+    @Test("Fingers held against the side border keep the drag moving sideways")
+    func edgePushCarriesTheDragSideways() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 75)
+        stream.place(1, xMM: 30, yMM: 75)
+        stream.place(2, xMM: 40, yMM: 75)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 28, dyMM: 0, over: 0.15)   // leading finger to x = 68 of 70
+        stream.hold(0.1)
+
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        let carried = events.totalMoveMM.x
+
+        for _ in 0 ..< 20 { events += recognizer.tick(elapsed: 0.025) }
+        let afterPush = events.totalMoveMM.x
+
+        // Half a second, two millimetres from the border, so two thirds of the way into a
+        // six-millimetre zone.
+        let expected = GestureConfig().dragEdgePushMaxMMPerS * (2.0 / 3) * 0.5
+        #expect(afterPush - carried > expected * 0.8)
+        #expect(afterPush - carried < expected * 1.2)
+        #expect(abs(events.totalMoveMM.y) < 0.001, "and nothing is pushed down the surface")
+    }
+
+    @Test("Nothing is pushed sideways from the middle of the surface")
+    func noSidePushAwayFromTheBorder() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 10, yMM: 75)
+        stream.place(1, xMM: 20, yMM: 75)
+        stream.place(2, xMM: 30, yMM: 75)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 15, dyMM: 0, over: 0.15)   // leading finger to x = 45 of 70
+        stream.hold(0.1)
+
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        let carried = events.totalMoveMM.x
+
+        for _ in 0 ..< 20 { events += recognizer.tick(elapsed: 0.025) }
+        #expect(abs(events.totalMoveMM.x - carried) < 0.001)
+    }
+
+    /// The mirror of the vertical rule, and the one that matters most sideways: three
+    /// fingers span half the width, so the trailing finger is near the *left* border while
+    /// the hand travels right. Pushing on that would drag everything backwards.
+    @Test("A hand heading away from the side border is not pushed into it")
+    func noSidePushAgainstTheHand() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 75)
+        stream.place(1, xMM: 30, yMM: 75)
+        stream.place(2, xMM: 40, yMM: 75)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 28, dyMM: 0, over: 0.15)
+        stream.moveAll(dxMM: -4, dyMM: 0, over: 0.05)   // still inside the zone, going back
+
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        let carried = events.totalMoveMM.x
+
+        for _ in 0 ..< 4 { events += recognizer.tick(elapsed: 0.025) }
+        #expect(abs(events.totalMoveMM.x - carried) < 0.001)
+    }
+
+    /// Three fingers cover half the width of a phone, so a hand that never meant to go
+    /// sideways is inside the side zone as a matter of course. Being there must not be
+    /// enough — otherwise a drag aimed straight down crabs across the screen.
+    @Test("A hand that lands in the side zone but drags elsewhere is not pushed sideways")
+    func noSidePushForAHandThatMerelyLandsThere() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 38, yMM: 40)
+        stream.place(1, xMM: 53, yMM: 40)
+        stream.place(2, xMM: 68, yMM: 40)      // already 2 mm from the right border
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: 20, over: 0.15)   // and heading straight down
+        stream.hold(0.1)
+
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        let carried = events.totalMoveMM.x
+
+        for _ in 0 ..< 20 { events += recognizer.tick(elapsed: 0.025) }
+        #expect(abs(events.totalMoveMM.x - carried) < 0.001)
     }
 
     /// Ticks and frames arrive interleaved, and only that ordering shows the mistake: the

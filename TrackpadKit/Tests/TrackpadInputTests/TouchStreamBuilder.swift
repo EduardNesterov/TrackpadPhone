@@ -36,6 +36,16 @@ struct TouchStreamBuilder {
         for _ in 0 ..< max(1, Int(seconds * hz)) { emit() }
     }
 
+    /// Time passing with nothing on the surface — and so with no frames at all, which is
+    /// exactly what the phone sends then.
+    ///
+    /// `hold` cannot express this: it keeps feeding the recogniser frames, and a clock that
+    /// only moves when frames arrive looks perfectly correct under one. Every window that
+    /// has to expire while the hand is away needs this to be tested honestly.
+    mutating func pause(_ seconds: Double) {
+        timeUs &+= UInt32(seconds * 1_000_000)
+    }
+
     mutating func move(_ id: UInt8, dxMM: Double, dyMM: Double, over seconds: Double) {
         let steps = max(1, Int(seconds * hz))
         guard let start = fingers[id] else { return }
