@@ -564,6 +564,59 @@ struct ThreeFingerDragTests {
         #expect(events.contains(.dragEnded))
     }
 
+    /// Running out of a 65-mm surface mid-drag is the normal case, not the exception, and
+    /// the hand needs longer to get a grip again than a finished drag should hang on for.
+    /// The two are told apart by the hand being pressed against the border it was heading
+    /// for — pure physics, no timing heuristics.
+    @Test("A hand that ran out of surface gets time to take a new grip")
+    func runningOutOfSurfaceWaitsLonger() {
+        var stream = TouchStreamBuilder()
+        // Low on the surface already, and still pushing downwards when the fingers go.
+        stream.place(0, xMM: 20, yMM: 120)
+        stream.place(1, xMM: 35, yMM: 120)
+        stream.place(2, xMM: 50, yMM: 120)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: 28, over: 0.15)
+        stream.lift(2)
+        stream.lift(1)
+        stream.lift(0)
+        // Longer than the ordinary window, well inside the one for a re-grab.
+        stream.hold(0.5)
+        stream.place(0, xMM: 20, yMM: 40)
+        stream.place(1, xMM: 35, yMM: 40)
+        stream.place(2, xMM: 50, yMM: 40)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: 25, over: 0.15)
+        stream.liftAll()
+        stream.hold(0.5)
+
+        let events = GestureRecognizer().run(stream)
+        #expect(events.filter { $0 == .dragBegan }.count == 1, "the same drag, a new grip")
+        #expect(events.filter { $0 == .dragEnded }.count == 1)
+    }
+
+    /// The long window is for running out of room, not for every lift. A drag that finishes
+    /// must still drop promptly — that is what the short window is for, and it is what the
+    /// hand having stopped shows.
+    @Test("A drag that comes to a stop drops promptly, even at the border")
+    func finishingAtTheBorderStillDropsPromptly() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 120)
+        stream.place(1, xMM: 35, yMM: 120)
+        stream.place(2, xMM: 50, yMM: 120)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: 28, over: 0.15)
+        // Arrived, and held still for a moment before letting go.
+        stream.hold(0.08)
+        stream.lift(2)
+        stream.lift(1)
+        stream.lift(0)
+        stream.hold(0.3)
+
+        let events = GestureRecognizer().run(stream)
+        #expect(events.contains(.dragEnded))
+    }
+
     @Test("Landing again after the window is a new gesture, not the old drag")
     func lateReGrabDoesNotContinue() {
         var stream = dragStream(dxMM: 0, dyMM: -30)

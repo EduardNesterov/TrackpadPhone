@@ -501,7 +501,7 @@ public final class GestureRecognizer {
                 // where the re-grab window starts. Waiting for the surface to empty would
                 // spend most of the window on the fingers still coming off.
                 phase = .threeFingerHeld
-                dragResumeDeadline = now + config.dragResumeWindow
+                dragResumeDeadline = now + resumeWindow()
                 return []
             }
             guard count == dragContacts else {
@@ -531,6 +531,49 @@ public final class GestureRecognizer {
         default:
             return []
         }
+    }
+
+    /// How long to keep holding after the hand leaves.
+    ///
+    /// A hand that ran out of surface and one that has finished both look the same at the
+    /// moment they lift, and one timeout cannot suit both: short enough to drop promptly is
+    /// too short to get a grip again. So the two are told apart by what the hand was doing —
+    /// still pushing towards a border it had already reached means it will be back.
+    private func resumeWindow() -> Double {
+        let stillPushing = pointerVelocity.speed >= config.dragRunOutSpeedMMPerS
+        guard stillPushing, handIsAtBorder(heading: pointerVelocity.displacement) else {
+            return config.dragResumeWindow
+        }
+        return config.dragEdgeResumeWindow
+    }
+
+    /// Is the hand pressed against the border it has been travelling towards?
+    ///
+    /// Checked against the *fingers* rather than their centroid: three fingers spread across
+    /// a 65-mm phone hold the centroid in the middle by construction, so it only reaches a
+    /// side border once an outer finger has already left the surface. Only the axes the hand
+    /// actually travelled along count — drifting a millimetre sideways is not running out of
+    /// room in that direction.
+    private func handIsAtBorder(heading: Vec) -> Bool {
+        let points = tracked.values.map(\.current)
+        guard !points.isEmpty else { return false }
+
+        let margin = config.dragEdgeMarginMM
+        let significant = max(max(abs(heading.x), abs(heading.y)) * 0.3, 0.5)
+        var atBorder = false
+        if heading.x > significant {
+            atBorder = atBorder || points.contains { surface.widthMM - $0.x <= margin }
+        }
+        if -heading.x > significant {
+            atBorder = atBorder || points.contains { $0.x <= margin }
+        }
+        if heading.y > significant {
+            atBorder = atBorder || points.contains { surface.heightMM - $0.y <= margin }
+        }
+        if -heading.y > significant {
+            atBorder = atBorder || points.contains { $0.y <= margin }
+        }
+        return atBorder
     }
 
     // MARK: Swipes

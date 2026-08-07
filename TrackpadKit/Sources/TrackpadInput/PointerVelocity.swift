@@ -89,7 +89,9 @@ struct PointerVelocity {
         samples.removeAll { time - $0.time > maxAge }
     }
 
-    private var displacement: Vec {
+    /// Where the finger has been going lately, as a vector. Read by the drag to work out
+    /// which border the hand was heading for.
+    var displacement: Vec {
         samples.reduce(Vec()) { $0 + $1.delta }
     }
 

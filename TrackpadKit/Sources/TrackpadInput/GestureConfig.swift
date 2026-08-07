@@ -85,6 +85,19 @@ public struct GestureConfig: Sendable, Equatable {
     /// of dropping what it is carrying. Long enough to lift and replace a hand, short
     /// enough that a deliberate release does not feel sticky.
     public var dragResumeWindow: Double = 0.175
+    /// The same window when the hand ran out of surface instead of finishing.
+    ///
+    /// Wanting a prompt release and wanting time to re-grab are two different wishes, and
+    /// one number cannot serve both. They are told apart by physics rather than by timing:
+    /// a hand that ran out of room is *pressed against the border it was heading for*, and
+    /// a hand that is done is not. Getting the guess wrong is cheap in both directions —
+    /// either the object hangs on for a moment, or it drops and gets picked up again.
+    public var dragEdgeResumeWindow: Double = 1.2
+    /// How close to the border counts as being against it.
+    public var dragEdgeMarginMM: Double = 8
+    /// Below this speed at lift-off the hand had already stopped, so it was finishing —
+    /// even at the very border.
+    public var dragRunOutSpeedMMPerS: Double = 25
     /// Centroid travel before a swipe fires.
     public var swipeThresholdMM: Double = 12.0
 
