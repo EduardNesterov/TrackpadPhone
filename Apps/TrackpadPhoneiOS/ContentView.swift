@@ -9,7 +9,12 @@ struct ContentView: View {
     /// Height left for the trackpad when the keyboard is up. Enough to nudge the cursor
     /// and reach a menu without dismissing anything — the keyboard takes the rest, which
     /// is the whole point of drawing our own instead of using the system one.
-    private let trackpadStripHeight: Double = 92
+    ///
+    /// Trimmed from 92 when the suggestion strip arrived, so the keys kept their size: the
+    /// strip costs a row, and a row had to come from somewhere. Nine millimetres is still a
+    /// comfortable nudge, and while the keyboard is up the strip is what the thumb is *not*
+    /// using.
+    private let trackpadStripHeight: Double = 56
     @FocusState private var hostFieldFocused: Bool
 
     /// The close button only acts on a second tap; this is the moment in between.

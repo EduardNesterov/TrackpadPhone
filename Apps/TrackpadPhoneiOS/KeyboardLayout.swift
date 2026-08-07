@@ -35,6 +35,10 @@ struct Key: Identifiable, Equatable {
 /// is adding three rows of strings.
 struct KeyboardLayout {
     var name: String
+    /// Which dictionary to complete words from, as a bare language code — the device may
+    /// hold it under `uk`, `uk_UA` or not at all, and `WordSuggestions` sorts that out.
+    /// Nil where completion makes no sense, which is the symbol layout.
+    var language: String?
     var rows: [[String]]
     /// Uppercase forms, when they are not simply `uppercased()`.
     var shiftedRows: [[String]]?
@@ -47,6 +51,7 @@ struct KeyboardLayout {
 
     static let english = KeyboardLayout(
         name: "EN",
+        language: "en",
         rows: [
             ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
             ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
@@ -57,6 +62,7 @@ struct KeyboardLayout {
 
     static let ukrainian = KeyboardLayout(
         name: "УКР",
+        language: "uk",
         rows: [
             ["й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х"],
             ["ф", "і", "в", "а", "п", "р", "о", "л", "д", "ж", "є"],
@@ -67,6 +73,7 @@ struct KeyboardLayout {
 
     static let russian = KeyboardLayout(
         name: "РУС",
+        language: "ru",
         rows: [
             ["й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х"],
             ["ф", "ы", "в", "а", "п", "р", "о", "л", "д", "ж", "э"],
