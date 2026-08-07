@@ -627,6 +627,66 @@ struct ThreeFingerDragTests {
         #expect(abs(afterDrop.totalMoveMM.x - 12) < 1.0)
     }
 
+    /// Selecting down a long page runs out of surface long before it runs out of page. With
+    /// the fingers pinned against the border the drag has to keep travelling on its own,
+    /// which is what walks the pointer to the edge of the window and lets the application's
+    /// own autoscroll take over.
+    @Test("Fingers held against the bottom border keep the drag moving")
+    func edgePushCarriesTheDragOn() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 120)
+        stream.place(1, xMM: 35, yMM: 120)
+        stream.place(2, xMM: 50, yMM: 120)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: 26, over: 0.15)   // to y = 146 of 150
+        stream.hold(0.1)                                 // and simply stay there
+
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        let carried = events.totalMoveMM.y
+
+        for _ in 0 ..< 20 { events += recognizer.tick(elapsed: 0.025) }
+        let afterPush = events.totalMoveMM.y
+        #expect(afterPush > carried + 10, "half a second at the border should travel further")
+    }
+
+    @Test("Nothing is pushed while the fingers are in the middle of the surface")
+    func noPushAwayFromTheBorder() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 60)
+        stream.place(1, xMM: 35, yMM: 60)
+        stream.place(2, xMM: 50, yMM: 60)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: 15, over: 0.15)
+        stream.hold(0.1)
+
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        let carried = events.totalMoveMM.y
+
+        for _ in 0 ..< 20 { events += recognizer.tick(elapsed: 0.025) }
+        #expect(abs(events.totalMoveMM.y - carried) < 0.001)
+    }
+
+    /// Someone who has changed their mind and is heading back up must not be pushed down
+    /// again — the surface fighting the hand is worse than no push at all.
+    @Test("A hand heading away from the border is not pushed into it")
+    func noPushAgainstTheHand() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 120)
+        stream.place(1, xMM: 35, yMM: 120)
+        stream.place(2, xMM: 50, yMM: 120)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: 26, over: 0.15)
+        stream.moveAll(dxMM: 0, dyMM: -4, over: 0.05)   // still inside the zone, going back
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        let carried = events.totalMoveMM.y
+
+        for _ in 0 ..< 4 { events += recognizer.tick(elapsed: 0.025) }
+        #expect(abs(events.totalMoveMM.y - carried) < 0.001)
+    }
+
     /// The long window is for running out of room, not for every lift. A drag that finishes
     /// must still drop promptly — that is what the short window is for, and it is what the
     /// hand having stopped shows.

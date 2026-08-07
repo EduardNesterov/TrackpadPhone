@@ -149,6 +149,11 @@ public final class GestureRecognizer {
     public func tick(elapsed: Double) -> [InputEvent] {
         let unaccounted = max(0, elapsed - framedSinceTick)
         framedSinceTick = 0
+
+        // The edge push runs on the *whole* interval, not the leftover: the fingers are on
+        // the surface and sending frames the entire time, so there is no leftover, and its
+        // whole point is to keep moving while they do not.
+        if phase == .threeFingerDragging { return edgePush(elapsed: elapsed) }
         guard phase == .threeFingerHeld else { return [] }
 
         now += unaccounted
@@ -565,6 +570,46 @@ public final class GestureRecognizer {
         default:
             return []
         }
+    }
+
+    /// Keeps a drag travelling while the fingers are pinned against the top or bottom border.
+    ///
+    /// Selecting down a long page runs out of surface long before it runs out of page. The
+    /// pointer is pushed on rather than the view scrolled: an application tracking a mouse
+    /// drag runs its own event loop that takes only dragged and up events, so a synthesised
+    /// wheel event would sit in the queue until the drag was over. Pushed to the edge of its
+    /// view, the application scrolls itself — and extends the selection while it does, which
+    /// is the part nothing outside it could get right.
+    private func edgePush(elapsed: Double) -> [InputEvent] {
+        guard elapsed > 0, let rate = edgePushRate() else { return [] }
+        let delta = Vec(x: 0, y: rate * elapsed)
+        lastCentroid = lastCentroid + delta
+        return [.move(
+            dxMM: 0, dyMM: delta.y,
+            speedMMPerS: max(abs(rate), config.dragSpeedFloorMMPerS)
+        )]
+    }
+
+    /// Millimetres per second, positive downwards; nil when there is nothing to push.
+    ///
+    /// Tapers to zero at the edge of the zone, so entering it does not snatch the pointer.
+    /// A hand already heading away from the border is left alone — pushing back against
+    /// someone who has changed their mind would feel like the surface fighting them.
+    private func edgePushRate() -> Double? {
+        let margin = config.dragEdgePushMarginMM
+        guard margin > 0, config.dragEdgePushMaxMMPerS > 0 else { return nil }
+        let heights = lastDragPoints.map(\.y)
+        guard let nearestBottom = heights.max(), let nearestTop = heights.min() else { return nil }
+
+        let heading = pointerVelocity.displacement.y
+        let toBottom = surface.heightMM - nearestBottom
+        if toBottom <= margin, heading >= -0.5 {
+            return config.dragEdgePushMaxMMPerS * min(1, (margin - toBottom) / margin)
+        }
+        if nearestTop <= margin, heading <= 0.5 {
+            return -config.dragEdgePushMaxMMPerS * min(1, (margin - nearestTop) / margin)
+        }
+        return nil
     }
 
     /// How long to keep holding after the hand leaves.

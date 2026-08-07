@@ -69,6 +69,20 @@ public struct GestureConfig: Sendable, Equatable {
     /// because three fingers rest steadier than one, and a drag that hesitates before it
     /// picks anything up feels like the surface is stuck.
     public var dragSlopMM: Double = 1.5
+    /// How close to the top or bottom border the fingers must be for the drag to keep
+    /// travelling on its own. Zero turns it off.
+    ///
+    /// Selecting text down a long page runs out of surface long before it runs out of page.
+    /// The pointer is *pushed* rather than the view scrolled, because a synthesised scroll
+    /// would not arrive: while an AppKit application is tracking a mouse drag it runs its
+    /// own event loop taking only dragged and up events, so wheel events sit in the queue
+    /// until the drag is over. Every one of those applications already scrolls itself when
+    /// the pointer reaches the edge of its view — and it extends the selection correctly
+    /// while doing so, which nothing outside the application could do as well.
+    public var dragEdgePushMarginMM: Double = 10
+    /// Travel per second at the very border, tapering to nothing at the edge of the zone,
+    /// so the push arrives gradually instead of snatching the pointer.
+    public var dragEdgePushMaxMMPerS: Double = 60
     /// Slow dragging is read at no less than this speed.
     ///
     /// The acceleration curve damps to 0.4× down at the bottom, which is what makes a pixel
