@@ -115,10 +115,23 @@ public final class GestureRecognizer {
         case 1: events += handleOneFinger(dt: dt)
         case 2: events += handleTwoFingers(dt: dt)
         case 3: events += handleThreeFingers()
-        default: phase = .ignoring
+        default:
+            events += closeScroll()
+            phase = .ignoring
         }
 
         return events
+    }
+
+    /// Terminates an in-progress scroll when the gesture turns into something else.
+    ///
+    /// A scroll that opened with `.began` and never closed leaves the system holding an
+    /// unfinished gesture: no rubber-band release, no momentum, and system shortcuts can
+    /// be swallowed while it believes one is still running. Adding a third finger to a
+    /// two-finger scroll is the ordinary way to reach this.
+    private func closeScroll() -> [InputEvent] {
+        guard phase == .scrolling else { return [] }
+        return [.scroll(dxMM: 0, dyMM: 0, phase: .ended(velocityX: 0, velocityY: 0))]
     }
 
     /// Wrapping subtraction: the phone's microsecond counter rolls over every 71 minutes,
@@ -251,8 +264,9 @@ public final class GestureRecognizer {
 
         default:
             // Arrived here by lifting a finger out of a multi-finger gesture.
+            let closing = closeScroll()
             phase = .ignoring
-            return []
+            return closing
         }
     }
 
@@ -351,10 +365,11 @@ public final class GestureRecognizer {
             return []
 
         default:
+            let closing = closeScroll()
             phase = .threeFinger
             gestureAnchor = current
             lastCentroid = current
-            return []
+            return closing
         }
     }
 }

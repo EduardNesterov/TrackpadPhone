@@ -351,6 +351,31 @@ struct GestureTests {
         #expect(GestureRecognizer().run(stream).shortcuts == [.shortcut(.spaceLeft)])
     }
 
+    /// Landing a third finger during a scroll is ordinary. If the scroll is not closed,
+    /// the system keeps holding an unfinished gesture — no rubber-band release, no
+    /// momentum, and it can swallow the very shortcut the third finger is asking for.
+    @Test("A third finger during a scroll closes the scroll first")
+    func thirdFingerClosesScroll() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 100)
+        stream.place(1, xMM: 35, yMM: 100)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -10, over: 0.1)
+        stream.place(2, xMM: 50, yMM: 90)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -30, over: 0.2)
+        stream.liftAll()
+
+        let events = GestureRecognizer().run(stream)
+        let endedBeforeShortcut = events.prefix { event in
+            if case .shortcut = event { false } else { true }
+        }
+        #expect(endedBeforeShortcut.contains { event in
+            if case .scroll(_, _, .ended) = event { true } else { false }
+        }, "the scroll must be terminated before the shortcut is emitted")
+        #expect(events.shortcuts == [.shortcut(.missionControl)])
+    }
+
     @Test("A short three-finger movement fires nothing")
     func threeFingerJitterIsIgnored() {
         var stream = TouchStreamBuilder()

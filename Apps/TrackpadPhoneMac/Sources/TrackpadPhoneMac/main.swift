@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var settings = Settings.load()
+    static let logPath = "/tmp/trackpadphone.log"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -36,8 +37,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         synthesizer = EventSynthesizer(queue: queue, config: config)
         synthesizer.acceleration.sensitivity = settings.sensitivity
 
+        // Development diagnostics. A menu bar app has nowhere to print, and "the gesture
+        // did nothing" is unanswerable without seeing what was recognised — so mirror the
+        // receiver's debug output into a file, truncated each launch.
+        freopen(Self.logPath, "w", stdout)
+        setvbuf(stdout, nil, _IOLBF, 0)
+
         let recognizer = GestureRecognizer(config: config)
         let session = Session(recognizer: recognizer, synthesizer: synthesizer)
+        session.debug = true
 
         receiver = Receiver(session: session, port: 51888, queue: queue)
         receiver.logsStatistics = false
