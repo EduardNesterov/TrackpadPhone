@@ -78,6 +78,11 @@ public final class AudioStreamer: @unchecked Sendable {
             )))
             sequence &+= 1
             stats.packetsSent += 1
+            // Roughly every two seconds at 200 packets/s. Without it there is no way to
+            // tell "capturing but not sending" from "not capturing" other than by ear.
+            if stats.packetsSent.isMultiple(of: 400) {
+                print("audio: \(stats.packetsSent) packets sent")
+            }
             // The remainder belongs to a later instant; advance the stamp with it.
             pendingHostUs &+= UInt32(Double(framesPerPacket) / max(stats.sampleRate, 1) * 1_000_000)
         }

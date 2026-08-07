@@ -87,9 +87,13 @@ public final class AudioCapture {
             [weak self] _, inputData, inputTime, _, _ in
             guard let self, let onAudio = self.onAudio else { return }
             let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputData))
-            guard let first = buffers.first, let data = first.mData else { return }
-            let channels = Int(first.mNumberChannels)
-            let frames = Int(first.mDataByteSize) / (MemoryLayout<Float>.size * max(channels, 1))
+            self.describeOnce(buffers)
+            // The *last* buffer, not the first. Taps are appended after the sub-device's own
+            // streams, and an audio interface usually has inputs of its own — so `first`
+            // hands back the card's line input instead of the system's output.
+            guard let tap = buffers.last, let data = tap.mData else { return }
+            let channels = Int(tap.mNumberChannels)
+            let frames = Int(tap.mDataByteSize) / (MemoryLayout<Float>.size * max(channels, 1))
             onAudio(data.assumingMemoryBound(to: Float.self), frames, channels,
                     inputTime.pointee.mHostTime)
         }
@@ -113,6 +117,17 @@ public final class AudioCapture {
             AudioHardwareDestroyProcessTap(tapID)
             tapID = 0
         }
+    }
+
+    private var described = false
+
+    /// Logged once, because "no audio arrives" and "audio arrives from the wrong stream"
+    /// look identical from outside and the buffer shape tells them apart immediately.
+    private func describeOnce(_ buffers: UnsafeMutableAudioBufferListPointer) {
+        guard !described else { return }
+        described = true
+        let shape = buffers.map { "\($0.mNumberChannels)ch/\($0.mDataByteSize)B" }.joined(separator: " + ")
+        print("audio: first callback — \(buffers.count) buffer(s): \(shape)")
     }
 
     // MARK: - Device queries
