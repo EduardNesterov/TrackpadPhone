@@ -390,6 +390,90 @@ struct GestureTests {
     }
 }
 
+/// Telling a flick apart from scrolling to a spot and stopping there. The difference lives
+/// entirely in the last few tens of milliseconds before lift-off.
+@Suite("Flick versus deliberate scroll")
+struct FlickDetectionTests {
+    private func exitVelocity(_ stream: TouchStreamBuilder) -> (x: Double, y: Double)? {
+        guard case .scroll(_, _, .ended(let vx, let vy)) = GestureRecognizer().run(stream).scrolls.last
+        else { return nil }
+        return (vx, vy)
+    }
+
+    @Test("A flick coasts")
+    func flickCoasts() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 110)
+        stream.place(1, xMM: 42, yMM: 110)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -50, over: 0.12)
+        stream.liftAll()
+
+        guard let exit = exitVelocity(stream) else { Issue.record("no terminating scroll"); return }
+        #expect(exit.y < -300, "a 50 mm throw in 120 ms is around -400 mm/s")
+    }
+
+    /// The case the old exponential smoother got wrong: it still remembered the fast part
+    /// and threw the page onwards after the user had visibly stopped.
+    @Test("Slowing to a stop before lifting does not coast")
+    func decelerationDoesNotCoast() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 130)
+        stream.place(1, xMM: 42, yMM: 130)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -25, over: 0.1)
+        stream.moveAll(dxMM: 0, dyMM: -6, over: 0.1)
+        stream.moveAll(dxMM: 0, dyMM: -1, over: 0.12)
+        stream.liftAll()
+
+        guard let exit = exitVelocity(stream) else { Issue.record("no terminating scroll"); return }
+        #expect(exit.x == 0 && exit.y == 0)
+    }
+
+    @Test("Holding still after scrolling does not coast")
+    func restingDoesNotCoast() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 130)
+        stream.place(1, xMM: 42, yMM: 130)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -40, over: 0.12)
+        stream.hold(0.3)
+        stream.liftAll()
+
+        guard let exit = exitVelocity(stream) else { Issue.record("no terminating scroll"); return }
+        #expect(exit.x == 0 && exit.y == 0, "the fingers had come to rest, so nothing was thrown")
+    }
+
+    /// A long slow scroll finished with a flick must coast at the flick's speed. An average
+    /// over the gesture — which is what smoothing amounts to — would drown it.
+    @Test("Only the end of the gesture sets the coasting speed")
+    func recentMotionWins() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 140)
+        stream.place(1, xMM: 42, yMM: 140)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -6, over: 0.6)    // slow: about 10 mm/s
+        stream.moveAll(dxMM: 0, dyMM: -30, over: 0.1)   // then a throw: about 300 mm/s
+        stream.liftAll()
+
+        guard let exit = exitVelocity(stream) else { Issue.record("no terminating scroll"); return }
+        #expect(exit.y < -200, "the throw must win, not the average of the whole gesture")
+    }
+
+    @Test("A slow steady scroll never coasts")
+    func slowSteadyScrollDoesNotCoast() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 120)
+        stream.place(1, xMM: 42, yMM: 120)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -12, over: 1.2)   // 10 mm/s, well under the threshold
+        stream.liftAll()
+
+        guard let exit = exitVelocity(stream) else { Issue.record("no terminating scroll"); return }
+        #expect(exit.x == 0 && exit.y == 0)
+    }
+}
+
 @Suite("Momentum")
 struct MomentumTests {
     @Test("Coasting decays and eventually stops")

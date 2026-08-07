@@ -36,6 +36,9 @@ public final class GestureRecognizer {
                 surface: SurfaceGeometry = SurfaceGeometry(widthMM: 70, heightMM: 150)) {
         self.config = config
         self.surface = surface
+        velocityTracker.window = config.flickWindow
+        velocityTracker.restTimeout = config.flickRestTimeout
+        velocityTracker.minimumTravelMM = config.flickMinimumTravelMM
     }
 
     // MARK: State
@@ -78,7 +81,7 @@ public final class GestureRecognizer {
     private var startSeparation: Double = 0
     private var lastZoomStep = 0
 
-    private var velocity = Vec()
+    private var velocityTracker = VelocityTracker()
 
     private var lastClickTime: Double = -.infinity
     private var lastClickPosition = Vec()
@@ -89,7 +92,7 @@ public final class GestureRecognizer {
         phase = .idle
         tracked.removeAll()
         lastSensorUs = nil
-        velocity = Vec()
+        velocityTracker.reset()
         lastClickCount = 0
         dragArmedUntil = -.infinity
     }
@@ -185,7 +188,7 @@ public final class GestureRecognizer {
     private func handleLiftOff() -> [InputEvent] {
         defer {
             phase = .idle
-            velocity = Vec()
+            velocityTracker.reset()
         }
         switch phase {
         case .oneFinger:
@@ -195,12 +198,15 @@ public final class GestureRecognizer {
         case .dragging:
             return [.dragEnded]
         case .scrolling:
-            let coasting = velocity.length >= config.momentumMinSpeedMMPerS
+            // nil means the fingers had already come to rest, which is a request to stop
+            // where you are — not a throw that should keep going.
+            let exit = velocityTracker.velocity(at: now)
+            let coasting = (exit?.length ?? 0) >= config.momentumMinSpeedMMPerS
             return [.scroll(
                 dxMM: 0, dyMM: 0,
                 phase: .ended(
-                    velocityX: coasting ? velocity.x : 0,
-                    velocityY: coasting ? velocity.y : 0
+                    velocityX: coasting ? exit!.x : 0,
+                    velocityY: coasting ? exit!.y : 0
                 )
             )]
         default:
@@ -283,7 +289,7 @@ public final class GestureRecognizer {
             lastCentroid = current
             startSeparation = separation
             lastZoomStep = 0
-            velocity = Vec()
+            velocityTracker.reset()
             return []
 
         case .twoFinger:
@@ -308,7 +314,8 @@ public final class GestureRecognizer {
                 phase = .scrolling
                 let delta = current - lastCentroid
                 lastCentroid = current
-                updateVelocity(delta: delta, dt: dt)
+                velocityTracker.reset()
+                velocityTracker.add(current, at: now)
                 return [.scroll(dxMM: delta.x, dyMM: delta.y, phase: .began)]
             }
             return []
@@ -316,7 +323,7 @@ public final class GestureRecognizer {
         case .scrolling:
             let delta = current - lastCentroid
             lastCentroid = current
-            updateVelocity(delta: delta, dt: dt)
+            velocityTracker.add(current, at: now)
             return [.scroll(dxMM: delta.x, dyMM: delta.y, phase: .changed)]
 
         case .pinching:
@@ -332,18 +339,6 @@ public final class GestureRecognizer {
         guard step != lastZoomStep else { return [] }
         defer { lastZoomStep = step }
         return [.zoom(steps: step - lastZoomStep)]
-    }
-
-    /// Exponential smoothing. A single frame's delta is far too noisy to launch inertia
-    /// with; a plain average over the whole gesture would ignore a late change of speed.
-    private func updateVelocity(delta: Vec, dt: Double) {
-        guard dt > 0 else { return }
-        let instant = Vec(x: delta.x / dt, y: delta.y / dt)
-        let smoothing = 0.7
-        velocity = Vec(
-            x: velocity.x * (1 - smoothing) + instant.x * smoothing,
-            y: velocity.y * (1 - smoothing) + instant.y * smoothing
-        )
     }
 
     // MARK: Three fingers

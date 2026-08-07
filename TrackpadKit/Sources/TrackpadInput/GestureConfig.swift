@@ -28,6 +28,15 @@ public struct GestureConfig: Sendable, Equatable {
     public var scrollGain: Double = 16.0
     /// Below this exit speed, lifting off just stops instead of coasting.
     public var momentumMinSpeedMMPerS: Double = 40
+    /// How far back to look when deciding whether the fingers were still moving at
+    /// lift-off. Long enough to survive one noisy frame, short enough that only the end
+    /// of the gesture counts.
+    public var flickWindow: Double = 0.06
+    /// No movement for this long means the fingers had already stopped, whatever they
+    /// were doing before.
+    public var flickRestTimeout: Double = 0.05
+    /// Movement inside the window below this is drift, not a throw.
+    public var flickMinimumTravelMM: Double = 1.0
 
     // MARK: Pinch
 
