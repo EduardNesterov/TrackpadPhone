@@ -843,6 +843,48 @@ struct ThreeFingerDragTests {
         #expect(speeds.contains { $0 < GestureConfig().dragSpeedFloorMMPerS })
     }
 
+    /// Reported from use: a quick flick with one finger would sometimes become a
+    /// three-finger drag, and text selected itself. Two contacts appearing in the middle of
+    /// a stroke are the side of a finger, a knuckle, or a mis-report — a hand that means to
+    /// drag plants three fingers together rather than adding them to a movement already
+    /// under way. Pressing the button under a moving pointer is the expensive mistake here,
+    /// so the stroke is abandoned instead.
+    @Test("Contacts appearing mid-stroke do not turn pointing into a drag")
+    func extraContactsDuringAStrokeDoNotDrag() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 120)
+        stream.hold(0.02)
+        stream.move(0, dxMM: 0, dyMM: -40, over: 0.2)   // a committed, fast stroke
+        stream.place(1, xMM: 42, yMM: 80)
+        stream.place(2, xMM: 54, yMM: 80)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -20, over: 0.15)
+        stream.liftAll()
+        stream.hold(0.3)
+
+        let events = GestureRecognizer().run(stream)
+        #expect(!events.contains(.dragBegan), "nothing may be picked up mid-stroke")
+        #expect(events.shortcuts.isEmpty)
+    }
+
+    /// The other half of the same rule: a hand that plants three fingers deliberately is
+    /// not a stroke in progress, and must still drag.
+    @Test("A hand that plants three fingers still drags")
+    func plantedThreeFingersStillDrag() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 100)
+        stream.hold(0.03)
+        stream.place(1, xMM: 35, yMM: 100)
+        stream.hold(0.03)
+        stream.place(2, xMM: 50, yMM: 100)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -25, over: 0.15)
+        stream.liftAll()
+        stream.hold(0.3)
+
+        #expect(GestureRecognizer().run(stream).contains(.dragBegan))
+    }
+
     /// Two more fingers landing during a tap-drag used to leave the mouse button down for
     /// good: the phase moved on to the three-finger gesture and nothing on the way out
     /// ever released it. The Mac stayed stuck selecting text until a real click.

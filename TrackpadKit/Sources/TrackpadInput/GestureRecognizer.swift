@@ -469,6 +469,18 @@ public final class GestureRecognizer {
         // A gesture that already fired keeps the surface until the hand leaves; picking
         // something up on the way out is not what the fingers meant.
         guard phase != .ignoring else { return [] }
+
+        // A stroke that is already under way must not turn into a drag. Two more contacts
+        // appearing in the middle of one are far more likely to be the side of a finger, a
+        // knuckle, or a touch the phone mis-reported than a decision to pick something up:
+        // a hand that means to drag plants three fingers together, it does not add them to
+        // a movement in progress. Getting this wrong presses the mouse button under a
+        // moving pointer, which is how text selects itself out of nowhere.
+        if phase == .pointing || phase == .dragging {
+            let closing = closeCurrentGesture()
+            phase = .ignoring
+            return closing
+        }
         let closing = closeCurrentGesture()
         phase = .threeFingerArmed
         gestureAnchor = centroid
