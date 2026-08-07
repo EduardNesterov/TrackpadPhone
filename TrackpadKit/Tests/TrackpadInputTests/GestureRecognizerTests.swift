@@ -460,6 +460,55 @@ struct FlickDetectionTests {
         #expect(exit.y < -200, "the throw must win, not the average of the whole gesture")
     }
 
+    /// Fingers do not leave the glass in the same frame. A flick normally ends by dropping
+    /// to one contact and only then to none, and every other test here lifts both at once —
+    /// which is why they all passed while short quick flicks refused to coast in real use.
+    @Test("A flick still coasts when the fingers lift one after the other")
+    func raggedLiftStillCoasts() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 110)
+        stream.place(1, xMM: 42, yMM: 110)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -40, over: 0.1)
+        stream.lift(1)
+        stream.lift(0)
+
+        guard let exit = exitVelocity(stream) else { Issue.record("no terminating scroll"); return }
+        #expect(exit.y < -200)
+    }
+
+    /// A short one, too: a flick can be over in a few centimetres and a fraction of a
+    /// second, and that is exactly when the lift is most ragged.
+    @Test("A short sharp flick coasts")
+    func shortSharpFlickCoasts() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 90)
+        stream.place(1, xMM: 42, yMM: 90)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -12, over: 0.05)   // 12 mm in 50 ms — about 240 mm/s
+        stream.lift(1)
+        stream.lift(0)
+
+        guard let exit = exitVelocity(stream) else { Issue.record("no terminating scroll"); return }
+        #expect(exit.y < -100)
+    }
+
+    /// The counterpart: a ragged lift must not resurrect momentum the user did not ask for.
+    @Test("Stopping first still does not coast, even with a ragged lift")
+    func raggedLiftAfterStoppingDoesNotCoast() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 130)
+        stream.place(1, xMM: 42, yMM: 130)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -30, over: 0.1)
+        stream.hold(0.3)
+        stream.lift(1)
+        stream.lift(0)
+
+        guard let exit = exitVelocity(stream) else { Issue.record("no terminating scroll"); return }
+        #expect(exit.x == 0 && exit.y == 0)
+    }
+
     @Test("A slow steady scroll never coasts")
     func slowSteadyScrollDoesNotCoast() {
         var stream = TouchStreamBuilder()

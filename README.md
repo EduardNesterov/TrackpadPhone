@@ -9,7 +9,7 @@ iPhone как трекпад для Mac. Локально по Wi-Fi, без о�
 | | |
 |---|---|
 | `TrackpadKit/TrackpadProtocol` | кодек протокола |
-| `TrackpadKit/TrackpadInput` | распознавание жестов, ускорение, инерция — **52 теста** |
+| `TrackpadKit/TrackpadInput` | распознавание жестов, ускорение, инерция — **55 тестов** |
 | `Spike/mac-receiver/` | приём по UDP → CGEvent. Выбрасывается после M1 |
 | `Spike/fake-phone.py` | тестовый телефон: гоняет Mac-часть без iPhone |
 | `Apps/TrackpadPhoneiOS/` | поверхность касаний во весь экран, альбомная ориентация |

@@ -126,15 +126,29 @@ public final class GestureRecognizer {
         return events
     }
 
-    /// Terminates an in-progress scroll when the gesture turns into something else.
+    /// Terminates an in-progress scroll.
     ///
     /// A scroll that opened with `.began` and never closed leaves the system holding an
     /// unfinished gesture: no rubber-band release, no momentum, and system shortcuts can
-    /// be swallowed while it believes one is still running. Adding a third finger to a
-    /// two-finger scroll is the ordinary way to reach this.
-    private func closeScroll() -> [InputEvent] {
+    /// be swallowed while it believes one is still running.
+    ///
+    /// - Parameter fingersLeaving: true when this is the hand lifting off, false when the
+    ///   gesture became something else. It decides whether the scroll gets to coast, and
+    ///   the distinction matters more than it looks: fingers almost never leave the
+    ///   surface in the same frame, so a two-finger scroll normally ends by dropping to
+    ///   one contact — and closing *that* with zero velocity kills inertia on every
+    ///   flick that does not happen to lift perfectly evenly.
+    private func closeScroll(fingersLeaving: Bool = false) -> [InputEvent] {
         guard phase == .scrolling else { return [] }
-        return [.scroll(dxMM: 0, dyMM: 0, phase: .ended(velocityX: 0, velocityY: 0))]
+        let exit = fingersLeaving ? velocityTracker.velocity(at: now) : nil
+        let coasting = (exit?.length ?? 0) >= config.momentumMinSpeedMMPerS
+        return [.scroll(
+            dxMM: 0, dyMM: 0,
+            phase: .ended(
+                velocityX: coasting ? exit!.x : 0,
+                velocityY: coasting ? exit!.y : 0
+            )
+        )]
     }
 
     /// Wrapping subtraction: the phone's microsecond counter rolls over every 71 minutes,
@@ -198,17 +212,7 @@ public final class GestureRecognizer {
         case .dragging:
             return [.dragEnded]
         case .scrolling:
-            // nil means the fingers had already come to rest, which is a request to stop
-            // where you are — not a throw that should keep going.
-            let exit = velocityTracker.velocity(at: now)
-            let coasting = (exit?.length ?? 0) >= config.momentumMinSpeedMMPerS
-            return [.scroll(
-                dxMM: 0, dyMM: 0,
-                phase: .ended(
-                    velocityX: coasting ? exit!.x : 0,
-                    velocityY: coasting ? exit!.y : 0
-                )
-            )]
+            return closeScroll(fingersLeaving: true)
         default:
             return []
         }
@@ -269,8 +273,9 @@ public final class GestureRecognizer {
             return [.move(dxMM: delta.x, dyMM: delta.y, dt: dt)]
 
         default:
-            // Arrived here by lifting a finger out of a multi-finger gesture.
-            let closing = closeScroll()
+            // A finger left a multi-finger gesture — the hand is on its way off the
+            // surface, so a scroll ending here still deserves its momentum.
+            let closing = closeScroll(fingersLeaving: true)
             phase = .ignoring
             return closing
         }
