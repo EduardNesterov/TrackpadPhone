@@ -58,6 +58,19 @@ struct TouchStreamBuilder {
         }
     }
 
+    /// Spreads fingers 0 and 1 while finger 0 stays put — how people actually pinch, with
+    /// the thumb anchored. The centroid therefore drifts by half the separation change,
+    /// which the symmetric version below hides completely.
+    mutating func pinchOneAnchored(byMM amount: Double, over seconds: Double) {
+        let steps = max(1, Int(seconds * hz))
+        let start = fingers
+        for step in 1 ... steps {
+            let fraction = Double(step) / Double(steps)
+            if let b = start[1] { fingers[1] = (b.x + amount * fraction, b.y) }
+            emit()
+        }
+    }
+
     /// Moves fingers 0 and 1 apart (positive) or together (negative) along x, keeping the
     /// midpoint fixed so the gesture is pure pinch with no centroid drift.
     mutating func pinch(byMM amount: Double, over seconds: Double) {

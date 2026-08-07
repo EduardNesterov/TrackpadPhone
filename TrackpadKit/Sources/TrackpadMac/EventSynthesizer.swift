@@ -272,10 +272,11 @@ public final class EventSynthesizer {
         guard let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: down) else { return }
         event.flags = flags
         event.post(tap: .cghidEventTap)
-        // The WindowServer debounces hotkeys; events landing in the same instant can be
-        // coalesced and the shortcut missed. A couple of milliseconds is imperceptible
-        // for something that fires once per gesture.
-        usleep(2000)
+        // The WindowServer processes the modifier change asynchronously, and a hotkey
+        // arriving in the same instant can be evaluated before Control is seen as down.
+        // 15 ms is well inside human reaction time for something that fires once per
+        // gesture, and far more forgiving than the 2 ms this started at.
+        usleep(15_000)
     }
 
     // MARK: - System

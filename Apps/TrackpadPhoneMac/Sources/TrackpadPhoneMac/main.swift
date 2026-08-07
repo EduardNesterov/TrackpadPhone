@@ -101,6 +101,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(invert)
 
         menu.addItem(.separator())
+        // Fires the shortcut without any phone involved. When a gesture "does nothing",
+        // this separates a shortcut that never reaches the system from a gesture that was
+        // never recognised — two very different bugs that look identical from the outside.
+        let probe = NSMenuItem(
+            title: "Перевірити ⌃↑ (Mission Control)",
+            action: #selector(probeShortcut),
+            keyEquivalent: ""
+        )
+        probe.target = self
+        menu.addItem(probe)
+
+        menu.addItem(.separator())
         let quit = NSMenuItem(title: "Вийти", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
 
@@ -173,6 +185,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settings.save()
         refreshMenu()
+    }
+
+    @objc private func probeShortcut() {
+        // Off the main thread: the synthesizer paces key events with short sleeps so the
+        // WindowServer sees the modifier settle, and blocking the menu would be rude.
+        queue.async { [synthesizer] in
+            synthesizer?.apply(.shortcut(.missionControl))
+        }
     }
 
     @objc private func openAccessibilitySettings() {

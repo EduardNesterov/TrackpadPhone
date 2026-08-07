@@ -289,6 +289,26 @@ struct GestureTests {
         #expect(events.scrolls.isEmpty, "a pure pinch must not also scroll")
     }
 
+    /// The realistic pinch: thumb still, finger moves. The centroid drifts by half the
+    /// spread, so the scroll threshold is crossed long before the pinch threshold — the
+    /// symmetric test above never exercises this because its centroid does not move at all.
+    @Test("A pinch with one finger anchored zooms, and does not scroll")
+    func pinchWithAnchoredFingerZooms() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 40, yMM: 75)
+        stream.place(1, xMM: 60, yMM: 75)
+        stream.hold(0.02)
+        stream.pinchOneAnchored(byMM: 30, over: 0.3)
+        stream.liftAll()
+
+        let events = GestureRecognizer().run(stream)
+        let steps = events.zooms.reduce(0) { total, event in
+            if case .zoom(let step) = event { total + step } else { total }
+        }
+        #expect(steps > 0, "spreading the fingers must zoom in")
+        #expect(events.scrolls.isEmpty, "and must not be mistaken for a scroll")
+    }
+
     @Test("Bringing two fingers together zooms out")
     func pinchInZoomsOut() {
         var stream = TouchStreamBuilder()

@@ -274,16 +274,23 @@ public final class GestureRecognizer {
 
         case .twoFinger:
             let separationDelta = separation - startSeparation
+            let spread = abs(separationDelta)
             let drift = (current - gestureAnchor).length
 
             // Both fingers sliding together is a scroll; fingers moving apart or together
-            // is a pinch. Compare the two motions and let the larger one win, rather than
-            // whichever threshold happens to be crossed first.
-            if abs(separationDelta) > config.pinchSlopMM, abs(separationDelta) > drift {
+            // is a pinch. Each branch must require its own signal to be the larger one.
+            //
+            // Testing the thresholds in sequence instead meant the smaller threshold
+            // always won the race: a real pinch anchors the thumb, so the centroid drifts
+            // by half the spread and crossed the 1 mm scroll threshold long before the
+            // spread reached the 4 mm pinch threshold. Every pinch became a sideways
+            // scroll. Waiting while neither signal leads costs a few frames and cannot
+            // stall, because one of them always pulls ahead.
+            if spread > config.pinchSlopMM, spread > drift {
                 phase = .pinching
                 return zoomEvents(separationDelta: separationDelta)
             }
-            if drift > config.scrollSlopMM {
+            if drift > config.scrollSlopMM, drift >= spread {
                 phase = .scrolling
                 let delta = current - lastCentroid
                 lastCentroid = current
