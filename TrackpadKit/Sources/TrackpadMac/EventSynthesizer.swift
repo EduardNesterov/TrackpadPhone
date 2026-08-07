@@ -229,24 +229,53 @@ public final class EventSynthesizer {
             wheel2: 0,
             wheel3: 0
         ) else { return }
+        // Flagging the event is correct here, unlike in `press` below: applications read
+        // the modifier off the scroll event itself, and a scroll event carries no key
+        // state for the system to disagree with. Pressing ⌘ for real would also have to
+        // be held across the whole pinch, which this API shape cannot express.
         event.flags = .maskCommand
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         event.post(tap: .cghidEventTap)
     }
 
+    private static let controlKey: CGKeyCode = 59
+
+    /// Sends a real ⌃-modified keystroke.
+    ///
+    /// Setting `flags = .maskControl` on the arrow event alone is not enough, and this
+    /// cost two visible bugs. Mission Control and space switching are symbolic hotkeys
+    /// handled by the WindowServer, which matches on the *actual* modifier state rather
+    /// than on a flag decorating some other event — so the gesture fired, the event went
+    /// out, and nothing happened.
+    ///
+    /// Worse, a flagged event with no matching modifier keystroke leaves the session's
+    /// modifier state inconsistent, and later mouse events created from this source
+    /// inherit the phantom Control. On macOS Control-click *is* right-click, so every
+    /// subsequent tap turned into a context menu.
+    ///
+    /// Pressing and releasing the modifier for real fixes both.
     private func press(_ shortcut: Shortcut) {
-        let (key, flags): (CGKeyCode, CGEventFlags) = switch shortcut {
-        case .missionControl: (126, .maskControl)      // ⌃↑
-        case .applicationWindows: (125, .maskControl)  // ⌃↓
-        case .spaceLeft: (123, .maskControl)           // ⌃←
-        case .spaceRight: (124, .maskControl)          // ⌃→
+        let key: CGKeyCode = switch shortcut {
+        case .missionControl: 126      // ⌃↑
+        case .applicationWindows: 125  // ⌃↓
+        case .spaceLeft: 123           // ⌃←
+        case .spaceRight: 124          // ⌃→
         }
 
-        for isDown in [true, false] {
-            guard let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: isDown) else { continue }
-            event.flags = flags
-            event.post(tap: .cghidEventTap)
-        }
+        postKey(Self.controlKey, down: true, flags: .maskControl)
+        postKey(key, down: true, flags: .maskControl)
+        postKey(key, down: false, flags: .maskControl)
+        postKey(Self.controlKey, down: false, flags: [])
+    }
+
+    private func postKey(_ key: CGKeyCode, down: Bool, flags: CGEventFlags) {
+        guard let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: down) else { return }
+        event.flags = flags
+        event.post(tap: .cghidEventTap)
+        // The WindowServer debounces hotkeys; events landing in the same instant can be
+        // coalesced and the shortcut missed. A couple of milliseconds is imperceptible
+        // for something that fires once per gesture.
+        usleep(2000)
     }
 
     // MARK: - System
