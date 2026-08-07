@@ -25,6 +25,11 @@ public final class EventSynthesizer {
     /// Sub-point remainder. Without it, slow movement rounds to zero every frame and the
     /// cursor refuses to budge — the classic symptom of injected pointer input.
     private var residual = CGPoint.zero
+    /// The same sub-point remainder, kept separately for scrolling. Truncating each
+    /// frame's delta without it threw away the fraction every time: at a typical 0.2 mm
+    /// per frame that is over a third of the travel, and slow scrolling produced literally
+    /// nothing because every frame rounded to zero.
+    private var scrollResidual = CGPoint.zero
 
     private var isDragging = false
     private var momentum = MomentumEngine()
@@ -145,6 +150,7 @@ public final class EventSynthesizer {
         switch phase {
         case .began:
             cancelMomentum()
+            scrollResidual = .zero
             postScroll(dxMM: dxMM, dyMM: dyMM, scrollPhase: 1, momentumPhase: 0)
         case .changed:
             postScroll(dxMM: dxMM, dyMM: dyMM, scrollPhase: 2, momentumPhase: 0)
@@ -163,8 +169,11 @@ public final class EventSynthesizer {
         // Sign convention: dy > 0 means the fingers moved down the surface. With natural
         // scrolling the content follows the fingers, which is a positive wheel delta.
         let direction: Double = naturalScrolling ? 1 : -1
-        let deltaY = dyMM * scrollGain * direction
-        let deltaX = dxMM * scrollGain * direction
+        let wantY = dyMM * scrollGain * direction + scrollResidual.y
+        let wantX = dxMM * scrollGain * direction + scrollResidual.x
+        let deltaY = wantY.rounded(.towardZero)
+        let deltaX = wantX.rounded(.towardZero)
+        scrollResidual = CGPoint(x: wantX - deltaX, y: wantY - deltaY)
 
         guard let event = CGEvent(
             scrollWheelEvent2Source: source,

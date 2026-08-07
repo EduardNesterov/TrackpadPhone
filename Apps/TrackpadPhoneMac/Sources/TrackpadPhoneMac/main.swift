@@ -109,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ))
         menu.addItem(slider(
             "Швидкість прокрутки", value: settings.scrollGain,
-            range: 2 ... 24, action: #selector(scrollGainChanged)
+            range: 4 ... 48, action: #selector(scrollGainChanged)
         ))
 
         let invert = NSMenuItem(
@@ -326,7 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// Preferences live in UserDefaults; there is nothing here worth a file format.
 struct Settings {
     var sensitivity: Double = 1.0
-    var scrollGain: Double = 8.0
+    var scrollGain: Double = 16.0
     var invertScroll = false
     var hasPromptedForAccessibility = false
 

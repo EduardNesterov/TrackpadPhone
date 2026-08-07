@@ -25,7 +25,7 @@ public struct GestureConfig: Sendable, Equatable {
     /// Centroid travel before two fingers commit to scrolling.
     public var scrollSlopMM: Double = 1.0
     /// Cursor points emitted per millimetre of finger travel.
-    public var scrollGain: Double = 8.0
+    public var scrollGain: Double = 16.0
     /// Below this exit speed, lifting off just stops instead of coasting.
     public var momentumMinSpeedMMPerS: Double = 40
 
