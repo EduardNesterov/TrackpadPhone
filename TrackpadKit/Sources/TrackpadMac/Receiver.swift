@@ -2,7 +2,7 @@ import Foundation
 import Network
 import TrackpadProtocol
 
-/// UDP listener. No discovery, no encryption, no pairing yet — that is M1.
+/// UDP listener: finds the phone, proves it is the phone, and hands its packets on.
 ///
 /// Everything runs on `queue`, so the mutable state below is single-threaded despite
 /// the class being handed to Network's callbacks.
@@ -18,6 +18,33 @@ public final class Receiver: @unchecked Sendable {
     public var onStatus: (@Sendable (Status) -> Void)?
     /// Per-second throughput line. Wanted by the command-line tool, noise in an app.
     public var logsStatistics = true
+
+    /// Starts using a pairing secret, or stops when handed nil.
+    ///
+    /// A method rather than a property because everything here lives on `queue`, and a
+    /// getter that hopped onto it would deadlock the first time the queue asked itself.
+    public func usePairing(secret: Data?) {
+        queue.async { self.channel = secret.map { SecureChannel(secret: $0, role: .mac) } }
+    }
+
+    /// Whether an unsealed packet is still accepted.
+    ///
+    /// Off while the phone is being brought across, because the Mac cannot be updated and
+    /// the phone left behind: on a machine whose only pointer *is* this app, a pairing that
+    /// fails the first time would leave nobody able to click the menu that fixes it. The
+    /// user turns it on once they have seen the phone connect paired, and from then on the
+    /// port answers to nobody else.
+    public func setRequiresPairing(_ required: Bool) {
+        queue.async { self.pairingRequired = required }
+    }
+
+    private var channel: SecureChannel?
+    private var pairingRequired = false
+    private var lastRefusalLoggedMs: Double = -.infinity
+
+    /// Bonjour instance name, so the phone can tell one Mac from another and find it again
+    /// after its address changes. The pairing code carries the same name.
+    public var serviceName: String = Host.current().localizedName ?? "Mac"
 
     private let queue: DispatchQueue
     private let session: Session
@@ -36,7 +63,7 @@ public final class Receiver: @unchecked Sendable {
     public func start() throws {
         session.onFeedback = { [weak self] feedback in
             guard let self, let connection = self.replyTo else { return }
-            connection.send(content: Packet.feedback(feedback).encode(), completion: .idempotent)
+            connection.send(content: self.wrap(.feedback(feedback)), completion: .idempotent)
         }
 
         let params = NWParameters.udp
@@ -45,6 +72,9 @@ public final class Receiver: @unchecked Sendable {
         params.includePeerToPeer = true
 
         let listener = try NWListener(using: params, on: port)
+        // Advertised rather than left to be typed: the Mac's address is the router's to
+        // change, and a phone that has been paired should not have to be told about it.
+        listener.service = NWListener.Service(name: serviceName, type: PairingCode.bonjourType)
         listener.newConnectionHandler = { [weak self] connection in
             guard let self else { return }
             self.connections.append(connection)
@@ -87,38 +117,56 @@ public final class Receiver: @unchecked Sendable {
     }
 
     private func handle(_ data: Data, from connection: NWConnection) {
-        let packet: Packet
-        do {
-            packet = try Packet.decode(data)
-        } catch {
-            // Malformed input is expected on an open UDP port; drop it and move on.
-            return
-        }
+        guard let packet = open(data) else { return }
 
         switch packet {
         case .hello(let hello):
+            replyTo = connection
             session.handle(hello)
 
         case .touchFrame(let frame):
             replyTo = connection
-            let accepted = session.handle(frame, arrivedAtMs: Receiver.nowMs())
-            if accepted {
-                // Bounce the frame's identity straight back. The phone owns the RTT
-                // measurement because only it has both timestamps on one clock.
-                let reply = Packet.echoReply(EchoReply(
-                    seq: frame.seq,
-                    tSensorUs: frame.tSensorUs,
-                    tServerUs: UInt32(truncatingIfNeeded: DispatchTime.now().uptimeNanoseconds / 1000)
-                ))
-                connection.send(content: reply.encode(), completion: .idempotent)
-            }
+            session.handle(frame, arrivedAtMs: Receiver.nowMs())
 
         case .keyInput(let key):
             session.handle(key)
 
-        case .echoReply, .feedback:
+        case .feedback:
             break  // Mac never receives these.
         }
+    }
+
+    /// Opens a datagram, or decides it is not worth listening to.
+    ///
+    /// Silence is the entire answer to a packet that fails: a wrong key, a rewritten byte
+    /// and a replay are all somebody who is not the paired phone, and there is nothing to
+    /// say to them. Malformed rubbish is expected anyway on an open UDP port.
+    private func open(_ data: Data) -> Packet? {
+        if let channel {
+            do {
+                return try channel.open(data)
+            } catch ChannelError.notSealed {
+                // An unpaired phone. The rule below decides whether to hear it.
+            } catch {
+                // The one failure with no symptom to look at: everything is running, the
+                // packets arrive, and the pointer does not move. Said once a second so a
+                // flood cannot bury the rest of the log.
+                let now = Receiver.nowMs()
+                if now - lastRefusalLoggedMs > 1000 {
+                    lastRefusalLoggedMs = now
+                    print("refused a packet: \(error). Re-scan the pairing code on the phone.")
+                }
+                return nil
+            }
+        }
+        guard !pairingRequired else { return nil }
+        return try? Packet.decode(data)
+    }
+
+    /// Seals a reply when there is a channel, and sends it plainly when there is not — so
+    /// haptics keep working through the changeover in both directions.
+    private func wrap(_ packet: Packet) -> Data {
+        channel.map { $0.seal(packet) } ?? packet.encode()
     }
 
     private static func nowMs() -> Double {

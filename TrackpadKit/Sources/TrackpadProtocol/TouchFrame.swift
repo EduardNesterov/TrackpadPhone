@@ -149,20 +149,6 @@ public struct Feedback: Sendable, Equatable {
     }
 }
 
-/// Mac → phone, mirroring a frame's identity so the phone can measure round-trip time.
-public struct EchoReply: Sendable, Equatable {
-    public var seq: UInt16
-    public var tSensorUs: UInt32
-    /// Mac-side receive time, for later one-way estimates. Unused while we only need RTT.
-    public var tServerUs: UInt32
-
-    public init(seq: UInt16, tSensorUs: UInt32, tServerUs: UInt32) {
-        self.seq = seq
-        self.tSensorUs = tSensorUs
-        self.tServerUs = tServerUs
-    }
-}
-
 /// Circular comparison for wrapping 16-bit sequence numbers: true when `a` is newer
 /// than `b`. Plain `>` would treat the wrap from 65535 to 0 as a huge jump backwards
 /// and stall the stream for 32k frames.

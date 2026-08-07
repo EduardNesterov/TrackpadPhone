@@ -9,7 +9,6 @@ import Foundation
 ///     contact     u8 id, u8 phase, i16 x, i16 y, u16 majorRadius     (8 bytes)
 ///     hello       + u32 sessionID, f32 widthMM, f32 heightMM, u8 maxContacts
 ///     keyInput    + u16 keyCode, u8 modifiers, u8 textLength, textLength × u8 (UTF-8)
-///     echoReply   + u16 seq, u32 tSensorUs, u32 tServerUs
 ///     feedback    + u8 kind, u8 intensity
 ///
 /// A 5-finger frame is 50 bytes, so frames never fragment.
@@ -17,14 +16,12 @@ public enum Packet: Sendable, Equatable {
     case touchFrame(TouchFrame)
     case hello(Hello)
     case keyInput(KeyInput)
-    case echoReply(EchoReply)
     case feedback(Feedback)
 
     enum WireType: UInt8 {
         case touchFrame = 0x01
         case hello = 0x02
         case keyInput = 0x03
-        case echoReply = 0x10
         case feedback = 0x11
     }
 }
@@ -98,12 +95,6 @@ public extension Packet {
             w.u8(UInt8(bytes.count))
             for byte in bytes { w.u8(byte) }
 
-        case .echoReply(let echo):
-            w.u8(WireType.echoReply.rawValue)
-            w.u16(echo.seq)
-            w.u32(echo.tSensorUs)
-            w.u32(echo.tServerUs)
-
         case .feedback(let feedback):
             w.u8(WireType.feedback.rawValue)
             w.u8(feedback.kind.rawValue)
@@ -168,13 +159,6 @@ public extension Packet {
             // the real payload; the modifiers and key still mean something.
             let text = String(decoding: bytes, as: UTF8.self)
             return .keyInput(KeyInput(keyCode: keyCode, modifiers: modifiers, text: text))
-
-        case .echoReply:
-            return .echoReply(EchoReply(
-                seq: try r.u16(),
-                tSensorUs: try r.u32(),
-                tServerUs: try r.u32()
-            ))
 
         case .feedback:
             let rawKind = try r.u8()

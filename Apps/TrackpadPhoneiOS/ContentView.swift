@@ -5,6 +5,7 @@ struct ContentView: View {
     @State private var session = PhoneSession()
     @State private var showSettings = true
     @State private var showKeyboard = false
+    @State private var showScanner = false
 
     /// Height left for the trackpad when the keyboard is up. Enough to nudge the cursor
     /// and reach a menu without dismissing anything — the keyboard takes the rest, which
@@ -15,7 +16,6 @@ struct ContentView: View {
     /// comfortable nudge, and while the keyboard is up the strip is what the thumb is *not*
     /// using.
     private let trackpadStripHeight: Double = 56
-    @FocusState private var hostFieldFocused: Bool
 
     /// The close button only acts on a second tap; this is the moment in between.
     @State private var closeArmed = false
@@ -40,7 +40,9 @@ struct ContentView: View {
         .defersSystemGestures(on: .all)
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
-            if UserDefaults.standard.bool(forKey: "autoconnect") {
+            // Paired is enough: there is nothing left to type, so there is nothing to
+            // wait for the user to do.
+            if session.isPaired {
                 session.connect()
             }
             // Lets a launch script open the keyboard, which cannot be tapped from a script:
@@ -72,8 +74,8 @@ struct ContentView: View {
             }
         )
         .background(Color(white: 0.07))
-        // Touches must not reach the surface while the settings are up, or adjusting the
-        // address would fling the cursor across the Mac.
+        // Touches must not reach the surface while the settings are up, or reaching for a
+        // button would fling the cursor across the Mac.
         .allowsHitTesting(!showSettings)
     }
 
@@ -100,14 +102,6 @@ struct ContentView: View {
                     .background(Color(white: 0.16), in: Circle())
             }
             .allowsHitTesting(!showSettings)
-
-            // Fingers seen in the last gesture. Makes "the gesture did nothing" answer
-            // itself: swipe with three, lift, and if this still reads 2 the phone never
-            // saw the third and there is no point looking at the Mac.
-            Text(session.peakContacts > 0 ? "\(session.peakContacts)" : "–")
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .allowsHitTesting(false)
         }
         .opacity(showSettings ? 0 : 0.55)
         .padding(.leading, 14)
@@ -174,38 +168,48 @@ struct ContentView: View {
             Color.black.opacity(0.75)
                 .ignoresSafeArea()
                 .onTapGesture {
-                    hostFieldFocused = false
                     if session.state == .connected { showSettings = false }
                 }
 
             VStack(spacing: 14) {
-                HStack(spacing: 8) {
-                    TextField("192.168.1.10", text: $session.host)
-                        .textFieldStyle(.roundedBorder)
-                        .keyboardType(.decimalPad)
-                        .autocorrectionDisabled()
-                        .focused($hostFieldFocused)
-                        .frame(maxWidth: 220)
+                HStack(spacing: 10) {
+                    Circle().fill(statusColor).frame(width: 7, height: 7)
+                    Text(statusText).font(.callout)
+                    Spacer(minLength: 12)
 
-                    Button(session.state == .connected ? "Відʼєднати" : "Підключити") {
-                        hostFieldFocused = false
-                        if session.state == .connected {
-                            session.disconnect()
-                        } else {
-                            session.connect()
+                    if session.isPaired {
+                        Button(session.state == .connected ? "Відʼєднати" : "Підключити") {
+                            if session.state == .connected {
+                                session.disconnect()
+                            } else {
+                                session.connect()
+                            }
                         }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
+
+                    // Two buttons rather than one with a chosen style: the styles are
+                    // different types, and the unpaired case is the one that has to shout.
+                    if session.isPaired {
+                        Button("Інший Mac") { showScanner = true }
+                            .buttonStyle(.bordered)
+                    } else {
+                        Button("Сканувати код") { showScanner = true }
+                            .buttonStyle(.borderedProminent)
+                    }
 
                     if session.state == .connected {
                         Button("Готово") { showSettings = false }
                     }
                 }
 
+                if !session.isPaired {
+                    Text("На Mac: значок у меню → «Показати код для телефона…»")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 HStack(spacing: 14) {
-                    Circle().fill(statusColor).frame(width: 7, height: 7)
-                    Text(statusText).font(.caption).foregroundStyle(.secondary)
-                    Spacer()
                     Toggle("Вібрація", isOn: $session.hapticsEnabled)
                         .toggleStyle(.switch)
                         .font(.caption)
@@ -216,44 +220,19 @@ struct ContentView: View {
                         // straight away rather than guessed at.
                         if !editing { session.previewHaptic() }
                     }
-                    .frame(width: 110)
+                    .frame(width: 160)
                     .disabled(!session.hapticsEnabled)
-                }
-
-                HStack(spacing: 18) {
-                    metric("RTT p50", session.rttP50Ms)
-                    metric("p95", session.rttP95Ms)
-                    metric("max", session.rttMaxMs)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("кадрів").font(.caption2).foregroundStyle(.secondary)
-                        Text("\(session.framesSent)").font(.system(.callout, design: .monospaced))
-                    }
-                    Button("Скинути", action: session.resetStats)
-                        .font(.caption)
-                        .disabled(session.echoesReceived == 0)
                 }
             }
             .padding(22)
             .background(Color(white: 0.13), in: RoundedRectangle(cornerRadius: 18))
         }
-    }
-
-    private func metric(_ label: String, _ value: Double) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.caption2).foregroundStyle(.secondary)
-            Text(value > 0 ? String(format: "%.1f", value) : "—")
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(colorForLatency(value))
-        }
-    }
-
-    /// Under ~50 ms feels immediate; past that the cursor visibly trails the finger.
-    private func colorForLatency(_ ms: Double) -> Color {
-        switch ms {
-        case 0: .secondary
-        case ..<25: .green
-        case ..<50: .yellow
-        default: .red
+        .sheet(isPresented: $showScanner) {
+            PairingScanner { code in
+                session.pair(with: code)
+                showScanner = false
+            }
+            .ignoresSafeArea()
         }
     }
 
@@ -270,7 +249,7 @@ struct ContentView: View {
         switch session.state {
         case .idle: "не підключено"
         case .connecting: "підключення…"
-        case .connected: "підключено · \(session.echoesReceived) відлунь"
+        case .connected: "підключено · \(session.pairedName ?? "")"
         case .failed(let message): message
         }
     }

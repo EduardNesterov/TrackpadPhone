@@ -3,6 +3,7 @@ import ApplicationServices
 import ServiceManagement
 import TrackpadInput
 import TrackpadMac
+import TrackpadProtocol
 
 /// Menu bar app. No window, no Dock icon — it is a receiver that needs to be reachable
 /// and quittable, which is exactly what a status item is for.
@@ -30,6 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var settings = Settings.load()
+    private let pairing = PairingStore()
+    private let pairingWindow = PairingWindow()
     static let logPath = "/tmp/trackpadphone.log"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -61,6 +64,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         receiver = Receiver(session: session, port: 51888, queue: queue)
         receiver.logsStatistics = true
+        receiver.serviceName = settings.serviceName
+        // A secret exists from the first launch, whether or not anyone has paired yet: the
+        // QR has to be showable on demand, and generating it lazily would mean a code that
+        // changes every time the window is opened.
+        receiver.usePairing(secret: pairing.loadOrCreate())
+        receiver.setRequiresPairing(settings.requirePairing)
         receiver.onStatus = { [weak self] status in
             DispatchQueue.main.async { self?.status = status }
         }
@@ -103,7 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
 
         menu.addItem(disabled(statusTitle))
-        for address in LocalAddresses.wifi() {
+        for address in LocalAddresses.described() {
             menu.addItem(disabled("   \(address)"))
         }
 
@@ -161,6 +170,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ? "   вимкнено"
                 : "   тягнеш до краю — їде далі само й розганяється"))
         }
+
+        menu.addItem(.separator())
+        let pair = NSMenuItem(
+            title: "Показати код для телефона…",
+            action: #selector(showPairingCode),
+            keyEquivalent: ""
+        )
+        pair.target = self
+        menu.addItem(pair)
+
+        let require = NSMenuItem(
+            title: "Приймати лише спарений телефон",
+            action: #selector(toggleRequirePairing),
+            keyEquivalent: ""
+        )
+        require.target = self
+        require.state = settings.requirePairing ? .on : .off
+        menu.addItem(require)
+        menu.addItem(disabled(settings.requirePairing
+            ? "   порт закритий для всіх інших"
+            : "   доки вимкнено — друкувати може будь-хто в мережі"))
+
+        let renew = NSMenuItem(
+            title: "Створити новий код",
+            action: #selector(renewPairingSecret),
+            keyEquivalent: ""
+        )
+        renew.target = self
+        menu.addItem(renew)
 
         menu.addItem(.separator())
         // The phone cannot start this app: with nothing running there is nothing to hear
@@ -290,6 +328,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Only when it crosses the line: rebuilding the menu on every drag of the slider
         // would tear it out from under the cursor.
         if wasOff != (settings.edgePushSpeed < 1) { refreshMenu() }
+    }
+
+    /// The code the phone scans: the secret, this Mac's Bonjour name, and its addresses as
+    /// a hint for the first connection.
+    @objc private func showPairingCode() {
+        pairingWindow.show(PairingCode(
+            secret: pairing.loadOrCreate(),
+            serviceName: settings.serviceName,
+            addresses: LocalAddresses.all(),
+            port: 51888
+        ))
+    }
+
+    /// Off by default, and that is a deliberate choice rather than an oversight.
+    ///
+    /// This Mac has no trackpad of its own: the phone is the pointer. Shipping a rule that
+    /// refuses an unpaired phone before the user has watched a paired one work would mean
+    /// that any mistake in the pairing leaves nobody able to click the menu item that undoes
+    /// it. So the door stays open until the user closes it, and the line under the switch
+    /// says plainly what leaving it open costs.
+    @objc private func toggleRequirePairing() {
+        settings.requirePairing.toggle()
+        settings.save()
+        receiver?.setRequiresPairing(settings.requirePairing)
+        refreshMenu()
+    }
+
+    /// Throws the old secret away. Every phone paired with it stops being heard, which is
+    /// the point: this is what a lost or lent phone is answered with.
+    @objc private func renewPairingSecret() {
+        pairing.clear()
+        let fresh = pairing.loadOrCreate()
+        receiver?.usePairing(secret: fresh)
+        showPairingCode()
     }
 
     /// Shown under the login-item toggle when the last attempt did not take.
@@ -457,6 +529,11 @@ struct Settings {
     /// the recogniser can be retuned without stranding everyone's saved setting on the old
     /// scale. One is whatever the default currently is; two is twice the zoom per pinch.
     var zoomSpeed: Double = 1.0
+    /// Whether an unpaired phone is refused. See `toggleRequirePairing` for why this starts
+    /// off rather than on.
+    var requirePairing = false
+    /// What the phone sees in the list and in the pairing code.
+    var serviceName: String = Host.current().localizedName ?? "Mac"
     var hasPromptedForAccessibility = false
 
     /// Millimetres of spread per zoom notch. Inverted: more speed is a shorter step.
@@ -485,6 +562,10 @@ struct Settings {
         if defaults.object(forKey: "zoomSpeed") != nil {
             settings.zoomSpeed = defaults.double(forKey: "zoomSpeed")
         }
+        settings.requirePairing = defaults.bool(forKey: "requirePairing")
+        if let name = defaults.string(forKey: "serviceName"), !name.isEmpty {
+            settings.serviceName = name
+        }
         settings.hasPromptedForAccessibility = defaults.bool(forKey: "hasPromptedForAccessibility")
         return settings
     }
@@ -497,6 +578,8 @@ struct Settings {
         defaults.set(threeFingerDrag, forKey: "threeFingerDrag")
         defaults.set(edgePushSpeed, forKey: "edgePushSpeed")
         defaults.set(zoomSpeed, forKey: "zoomSpeed")
+        defaults.set(requirePairing, forKey: "requirePairing")
+        defaults.set(serviceName, forKey: "serviceName")
         defaults.set(hasPromptedForAccessibility, forKey: "hasPromptedForAccessibility")
     }
 }

@@ -187,6 +187,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Reading the pairing code shown on your Mac. The camera is used for that and nothing else.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "TrackpadPhone talks directly to your Mac on this network. Nothing leaves it.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -215,6 +216,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Reading the pairing code shown on your Mac. The camera is used for that and nothing else.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "TrackpadPhone talks directly to your Mac on this network. Nothing leaves it.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

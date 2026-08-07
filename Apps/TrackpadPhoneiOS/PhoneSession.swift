@@ -5,10 +5,13 @@ import QuartzCore
 import TrackpadProtocol
 import UIKit
 
-/// Owns the UDP link to the Mac and the round-trip measurement that M0 exists to produce.
+/// Owns the link to the Mac: who it is, where it is, and the sealed channel to it.
 ///
-/// No discovery and no encryption here — that is M1. Typing an IP is also worth keeping
-/// afterwards as the fallback for networks where Bonjour is blocked.
+/// Three things that used to be one typed address. *Who* comes from the QR code, and is a
+/// shared secret rather than a name — the Mac refuses anything that cannot prove it holds
+/// the same one. *Where* comes from Bonjour, because an address is the router's to change
+/// and a phone that has been paired should never have to be told about it again. The
+/// addresses from the code are kept only as a fallback for networks that filter mDNS.
 @Observable
 @MainActor
 final class PhoneSession {
@@ -20,22 +23,10 @@ final class PhoneSession {
     }
 
     private(set) var state: State = .idle
-    /// Most fingers seen during the current or most recent gesture.
-    ///
-    /// The peak rather than the live count, and it survives lift-off on purpose: while a
-    /// gesture is happening your fingers cover the screen and your eyes are on the Mac,
-    /// so a live readout is unreadable exactly when it matters. This answers "did the
-    /// phone see three fingers?" after the fact.
-    private(set) var peakContacts = 0
-    private(set) var framesSent = 0
-    private(set) var echoesReceived = 0
-    private(set) var rttP50Ms: Double = 0
-    private(set) var rttP95Ms: Double = 0
-    private(set) var rttMaxMs: Double = 0
 
-    var host: String {
-        didSet { UserDefaults.standard.set(host, forKey: Self.hostKey) }
-    }
+    /// The Mac this phone is paired with, or nil while it is paired with none.
+    private(set) var pairedName: String?
+    var isPaired: Bool { pairedName != nil }
 
     /// Persisted so the choice survives a relaunch; haptics are polarising enough to be
     /// worth a switch rather than a decision made for the user.
@@ -59,7 +50,9 @@ final class PhoneSession {
 
     private static let hapticsKey = "trackpadphone.haptics"
     private static let hapticStrengthKey = "trackpadphone.hapticStrength"
-    private static let hostKey = "trackpadphone.host"
+    private static let nameKey = "trackpadphone.macName"
+    private static let addressesKey = "trackpadphone.macAddresses"
+    private static let portKey = "trackpadphone.macPort"
     private static let defaultPort: UInt16 = 51888
 
     /// Overridable the same way as the host, so a second receiver can be tested without
@@ -70,19 +63,21 @@ final class PhoneSession {
     }
 
     private let queue = DispatchQueue(label: "trackpadphone.sender")
+    private let pairing = PairingStore()
+    /// Nil only when nothing is paired; every packet goes through it otherwise.
+    private var channel: SecureChannel?
     private var connection: NWConnection?
     private var helloTimer: Timer?
+    /// Fires when Bonjour has had long enough. See `connect()`.
+    private var fallbackTask: Task<Void, Never>?
     private var sequence: UInt16 = 0
     private let sessionID = UInt32.random(in: .min ... .max)
     private let startedAt = CACurrentMediaTime()
 
-    /// Last 300 samples, about 2.5 seconds of finger movement — recent enough to reflect
-    /// the network as it is right now rather than an average over the whole session.
-    private var rtts: [Double] = []
     private var lastContactCount = 0
 
     init() {
-        host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
+        pairedName = UserDefaults.standard.string(forKey: Self.nameKey)
         hapticsEnabled = UserDefaults.standard.object(forKey: Self.hapticsKey) as? Bool ?? true
         hapticStrength = UserDefaults.standard.object(forKey: Self.hapticStrengthKey) as? Double ?? 1.0
         haptics.isEnabled = hapticsEnabled
@@ -98,18 +93,68 @@ final class PhoneSession {
 
     // MARK: - Connection
 
+    /// Pairs with a scanned code and connects straight away.
+    ///
+    /// The secret goes to the Keychain, the rest to defaults: only the secret is worth
+    /// protecting, and a name and an address are worth being able to read when something
+    /// does not work.
+    func pair(with code: PairingCode) {
+        pairing.save(code.secret)
+        pairedName = code.serviceName
+        UserDefaults.standard.set(code.serviceName, forKey: Self.nameKey)
+        UserDefaults.standard.set(code.addresses, forKey: Self.addressesKey)
+        UserDefaults.standard.set(Int(code.port), forKey: Self.portKey)
+        connect()
+    }
+
+    func unpair() {
+        disconnect()
+        pairing.clear()
+        pairedName = nil
+        UserDefaults.standard.removeObject(forKey: Self.nameKey)
+        UserDefaults.standard.removeObject(forKey: Self.addressesKey)
+    }
+
     func connect() {
         disconnect()
-        let trimmed = host.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, let port = NWEndpoint.Port(rawValue: Self.port) else {
-            state = .failed("enter the Mac's address")
+        guard let secret = pairing.load(), let name = pairedName else {
+            state = .failed("скануй код на Mac")
             return
         }
-
+        channel = SecureChannel(secret: secret, role: .phone)
         state = .connecting
+
+        // By name, not by address: Network.framework resolves the Bonjour service itself
+        // and follows it when the Mac's address changes, which is the entire reason the
+        // address field is gone.
+        open(to: .service(
+            name: name, type: PairingCode.bonjourType, domain: "local.", interface: nil
+        ))
+
+        // mDNS is filtered on some networks — office Wi-Fi especially — and there the
+        // resolution above never completes and never fails either. So the addresses from
+        // the code get their turn if nothing has come up by then.
+        fallbackTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard let self, !Task.isCancelled, self.state != .connected else { return }
+            self.connectToStoredAddress()
+        }
+    }
+
+    private func connectToStoredAddress() {
+        let addresses = UserDefaults.standard.stringArray(forKey: Self.addressesKey) ?? []
+        let stored = UserDefaults.standard.integer(forKey: Self.portKey)
+        guard let first = addresses.first,
+              let port = NWEndpoint.Port(rawValue: UInt16(stored > 0 ? stored : Int(Self.port)))
+        else { return }
+        open(to: .hostPort(host: NWEndpoint.Host(first), port: port))
+    }
+
+    private func open(to endpoint: NWEndpoint) {
+        connection?.cancel()
         let params = NWParameters.udp
         params.includePeerToPeer = true
-        let connection = NWConnection(host: NWEndpoint.Host(trimmed), port: port, using: params)
+        let connection = NWConnection(to: endpoint, using: params)
 
         connection.stateUpdateHandler = { [weak self] newState in
             Task { @MainActor in
@@ -134,6 +179,8 @@ final class PhoneSession {
     }
 
     func disconnect() {
+        fallbackTask?.cancel()
+        fallbackTask = nil
         helloTimer?.invalidate()
         helloTimer = nil
         connection?.cancel()
@@ -145,15 +192,6 @@ final class PhoneSession {
     /// instead of by putting the phone down and tapping.
     func previewHaptic() {
         haptics.play(Feedback(kind: .click, intensity: 255))
-    }
-
-    func resetStats() {
-        rtts.removeAll()
-        framesSent = 0
-        echoesReceived = 0
-        rttP50Ms = 0
-        rttP95Ms = 0
-        rttMaxMs = 0
     }
 
     /// The Mac needs the size of the *touch surface*, not the screen — they differ once
@@ -200,17 +238,11 @@ final class PhoneSession {
     // MARK: - Frames
 
     func send(contacts: [Contact], timestamp: TimeInterval) {
-        if lastContactCount == 0, contacts.count > 0 {
-            peakContacts = contacts.count  // new gesture: start counting again
-        } else if contacts.count > peakContacts {
-            peakContacts = contacts.count
-        }
         guard state == .connected else { return }
         let tUs = UInt32(truncatingIfNeeded: Int((timestamp - startedAt) * 1_000_000))
         let frame = TouchFrame(seq: sequence, tSensorUs: tUs, contacts: contacts)
         sequence &+= 1
         send(.touchFrame(frame))
-        framesSent += 1
 
         // A lost touch-down or touch-up is the one loss a snapshot protocol cannot paper
         // over, so repeat any frame where the contact count changed. 50 bytes is cheap.
@@ -235,7 +267,8 @@ final class PhoneSession {
     }
 
     private func send(_ packet: Packet) {
-        connection?.send(content: packet.encode(), completion: .idempotent)
+        guard let channel else { return }
+        connection?.send(content: channel.seal(packet), completion: .idempotent)
     }
 
     private func receive(on connection: NWConnection) {
@@ -251,33 +284,7 @@ final class PhoneSession {
     }
 
     private func handle(_ data: Data) {
-        switch try? Packet.decode(data) {
-        case .feedback(let feedback):
-            haptics.play(feedback)
-            return
-        case .echoReply(let echo):
-            recordRoundTrip(echo)
-        default:
-            return
-        }
-    }
-
-    private func recordRoundTrip(_ echo: EchoReply) {
-        // Both timestamps are on this device's clock, which is why the phone owns the
-        // measurement — no clock sync with the Mac is needed or attempted.
-        let rtt = Double(nowMicroseconds() &- echo.tSensorUs) / 1000
-        guard rtt >= 0, rtt < 5000 else { return }
-
-        echoesReceived += 1
-        rtts.append(rtt)
-        if rtts.count > 300 { rtts.removeFirst(rtts.count - 300) }
-
-        // Percentiles are for the eyes only; recompute a few times a second, not 120.
-        if echoesReceived % 10 == 0 {
-            let sorted = rtts.sorted()
-            rttP50Ms = sorted[sorted.count / 2]
-            rttP95Ms = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
-            rttMaxMs = sorted[sorted.count - 1]
-        }
+        guard let channel, case .feedback(let feedback) = try? channel.open(data) else { return }
+        haptics.play(feedback)
     }
 }

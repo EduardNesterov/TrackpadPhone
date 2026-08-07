@@ -80,15 +80,6 @@ struct PacketCodecTests {
         #expect(decoded == hello)
     }
 
-    @Test("Echo reply survives a round trip")
-    func echoRoundTrip() throws {
-        let echo = EchoReply(seq: 65535, tSensorUs: 1, tServerUs: 4_294_967_295)
-        guard case .echoReply(let decoded) = try Packet.decode(Packet.echoReply(echo).encode()) else {
-            Issue.record("decoded to the wrong case")
-            return
-        }
-        #expect(decoded == echo)
-    }
 
     /// Cyrillic and emoji are the point of routing text as Unicode rather than key codes.
     @Test("Typed text survives a round trip", arguments: ["hello", "Привіт", "🙂 ok", "", "a"])

@@ -12,6 +12,7 @@ let package = Package(
             name: "TrackpadPhoneMac",
             dependencies: [
                 .product(name: "TrackpadInput", package: "TrackpadKit"),
+                .product(name: "TrackpadProtocol", package: "TrackpadKit"),
                 .product(name: "TrackpadMac", package: "TrackpadKit"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]
