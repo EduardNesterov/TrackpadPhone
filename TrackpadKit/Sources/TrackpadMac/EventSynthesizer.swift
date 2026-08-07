@@ -48,6 +48,8 @@ public final class EventSynthesizer {
     // MARK: - Entry point
 
     public func apply(_ event: InputEvent) {
+        if case .zoom = event {} else { releaseZoomCommand() }
+
         switch event {
         case .move(let dx, let dy, let speed):
             cancelMomentum()
@@ -196,6 +198,14 @@ public final class EventSynthesizer {
 
     /// Lets the accumulated scroll out at an even rate. Driven by the receiver's tick.
     public func tick(elapsed: Double) {
+        // A pinch that simply stops sends nothing more, so the modifier has to be let go on
+        // a clock rather than on an event. Leaving it held would put ⌘ under the user's next
+        // click, which is exactly the failure this whole path is here to avoid.
+        if zoomCommandHeld {
+            zoomIdleTime += elapsed
+            if zoomIdleTime >= Self.zoomCommandRelease { releaseZoomCommand() }
+        }
+
         guard scrollActive, elapsed > 0 else { return }
         let share = 1 - exp(-elapsed / Self.scrollSmoothing)
         let step = CGPoint(x: pendingScroll.x * share, y: pendingScroll.y * share)
@@ -283,10 +293,33 @@ public final class EventSynthesizer {
 
     // MARK: - Keyboard-mapped gestures
 
+    /// Whether ⌘ is currently held down for a zoom, and when the last step went out.
+    private var zoomCommandHeld = false
+    private var zoomIdleTime: Double = 0
+    /// How long after the last zoom step ⌘ is let go. Long enough to span the gaps between
+    /// steps of one pinch, including its coast, short enough that nothing else meets it.
+    private static let zoomCommandRelease = 0.25
+
     private func zoom(steps: Int) {
         guard steps != 0 else { return }
+
         // ⌘ + scroll is the closest public stand-in for a pinch: Safari, Preview, Maps,
         // Figma and Photoshop all read it as zoom, and unlike ⌘+/− it is continuous.
+        //
+        // The modifier is pressed for real and held for the length of the pinch. Merely
+        // flagging the scroll event — which is what this did — leaves the session's
+        // modifier state disagreeing with the flag, and the *next* event created from this
+        // source inherits a ⌘ nobody pressed. Measured: one flagged scroll, and a freshly
+        // built mouse event comes out carrying maskCommand. ⌘-click on a Dock icon reveals
+        // the item in Finder, so a click on an app opened the Applications folder instead
+        // of the app. This is the same defect the Control path already cost us once, and
+        // the comment that used to sit here argued it was safe for ⌘. It was not.
+        if !zoomCommandHeld {
+            postModifier(down: true, tap: .cghidEventTap, flags: .maskCommand)
+            zoomCommandHeld = true
+        }
+        zoomIdleTime = 0
+
         guard let event = CGEvent(
             scrollWheelEvent2Source: source,
             units: .pixel,
@@ -295,13 +328,22 @@ public final class EventSynthesizer {
             wheel2: 0,
             wheel3: 0
         ) else { return }
-        // Flagging the event is correct here, unlike in `press` below: applications read
-        // the modifier off the scroll event itself, and a scroll event carries no key
-        // state for the system to disagree with. Pressing ⌘ for real would also have to
-        // be held across the whole pinch, which this API shape cannot express.
         event.flags = .maskCommand
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         event.post(tap: .cghidEventTap)
+    }
+
+    /// Lets ⌘ go once the pinch is over. Anything that is not another zoom step ends it at
+    /// once, because a held modifier belongs to the zoom and to nothing else.
+    ///
+    /// Public so that quitting can call it: the press is a real one, and the WindowServer
+    /// keeps believing the key is down until something says otherwise — including after
+    /// this process is gone.
+    public func releaseZoomCommand() {
+        guard zoomCommandHeld else { return }
+        zoomCommandHeld = false
+        zoomIdleTime = 0
+        postModifier(down: false, tap: .cghidEventTap, flags: .maskCommand)
     }
 
     private static let controlKey: CGKeyCode = 59

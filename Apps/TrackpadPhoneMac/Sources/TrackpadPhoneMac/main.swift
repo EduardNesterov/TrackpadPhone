@@ -86,6 +86,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.save()
     }
 
+    /// Nothing we hold down may outlive us.
+    ///
+    /// Both the drag's button and the zoom's ⌘ are real presses, and the WindowServer goes
+    /// on believing they are down until something says otherwise — quitting mid-gesture
+    /// would leave the Mac with a stuck button or a stuck modifier and no way to tell why.
+    func applicationWillTerminate(_ notification: Notification) {
+        synthesizer?.releaseZoomCommand()
+        synthesizer?.releaseDrag()
+    }
+
     // MARK: - Menu
 
     private func refreshMenu() {
