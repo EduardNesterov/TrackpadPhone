@@ -23,6 +23,12 @@ public struct GestureConfig: Sendable, Equatable {
     /// Trailing window for the pointer speed estimate. Shorter reacts faster but lets
     /// per-frame noise into the gain; longer is smoother but lags a change of pace.
     public var pointerVelocityWindow: Double = 0.06
+    /// How long the speed the curve is read at takes to fall towards a slower estimate.
+    ///
+    /// Only falls are damped — a flick reaches its gain on the first frame. This is what
+    /// keeps a momentary dip, from a finger hesitating or a frame arriving late over
+    /// Wi-Fi, out of the movement. Zero turns the smoothing off.
+    public var speedFallTime: Double = 0.09
 
     // MARK: Scroll
 
@@ -63,6 +69,15 @@ public struct GestureConfig: Sendable, Equatable {
     /// because three fingers rest steadier than one, and a drag that hesitates before it
     /// picks anything up feels like the surface is stuck.
     public var dragSlopMM: Double = 1.5
+    /// Slow dragging is read at no less than this speed.
+    ///
+    /// The acceleration curve damps to 0.4× down at the bottom, which is what makes a pixel
+    /// reachable when *pointing*. Carrying something is the opposite job: the same damping
+    /// turns a deliberate drag into hauling it through tar, and the surface is too small to
+    /// make the distance up. Flooring the speed rather than adding a second curve means fast
+    /// dragging still accelerates exactly like the pointer — it only removes the precision
+    /// zone, which a drag has no use for. 35 mm/s is where the curve reaches unity.
+    public var dragSpeedFloorMMPerS: Double = 35
     /// How long the button stays down after the fingers leave, waiting for them to return.
     ///
     /// Not a nicety: the surface is 65 mm wide and a window crossing a desktop needs more

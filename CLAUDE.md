@@ -12,6 +12,11 @@ iPhone как трекпад и клавиатура для Mac. Локальн�
 Приложение без окна, значок в строке меню. **Нужно разрешение Accessibility** — пункт для
 этого есть в его меню, пока не выдано.
 
+Автозапуск при входе — пункт в меню или скриптом:
+`dist/TrackpadPhone.app/Contents/MacOS/TrackpadPhone --login-item on|off|status`.
+Телефон **не может запустить** Mac-приложение: пока оно не запущено, запрос слушать некому.
+Автозапуск — единственный способ сделать «нажал підключити, и работает» правдой.
+
 Телефон:
 
 ```sh
@@ -21,7 +26,7 @@ xcrun devicectl device install app --device A7133E21-F8C9-5235-A32B-A8AA0EADF8C8
   ~/Library/Developer/Xcode/DerivedData/TrackpadPhone-*/Build/Products/Debug-iphoneos/TrackpadPhone.app
 ```
 
-Тесты: `swift test --package-path TrackpadKit` (76 шт.).
+Тесты: `swift test --package-path TrackpadKit` (80 шт.).
 Отладка: приложение пишет распознанные события в `/tmp/trackpadphone.log`.
 
 ## Устройство

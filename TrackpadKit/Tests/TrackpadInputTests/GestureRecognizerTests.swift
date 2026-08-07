@@ -583,6 +583,40 @@ struct ThreeFingerDragTests {
         #expect(!events.contains(.dragBegan))
     }
 
+    /// The acceleration curve damps to 0.4× at the bottom so that a pixel is reachable when
+    /// pointing. Carrying something is the opposite job, and on a 65-mm surface that damping
+    /// cannot be made up by moving further.
+    @Test("Slow dragging is not read at the precision gain")
+    func slowDragIgnoresThePrecisionZone() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 100)
+        stream.place(1, xMM: 35, yMM: 100)
+        stream.place(2, xMM: 50, yMM: 100)
+        stream.hold(0.02)
+        // 10 mm over half a second — around 20 mm/s, deep in the damped zone.
+        stream.moveAll(dxMM: 0, dyMM: -10, over: 0.5)
+        stream.liftAll()
+        stream.hold(0.5)
+
+        let speeds = GestureRecognizer().run(stream).moveSpeeds
+        #expect(!speeds.isEmpty)
+        #expect(speeds.allSatisfy { $0 >= GestureConfig().dragSpeedFloorMMPerS })
+    }
+
+    /// Pointing keeps the precision zone — the floor is for drags only, and swapping the
+    /// two would cost the fine targeting the curve exists for.
+    @Test("Pointing keeps the slow, precise end of the curve")
+    func slowPointingStaysPrecise() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 100)
+        stream.hold(0.02)
+        stream.move(0, dxMM: 0, dyMM: -10, over: 0.5)
+        stream.liftAll()
+
+        let speeds = GestureRecognizer().run(stream).moveSpeeds
+        #expect(speeds.contains { $0 < GestureConfig().dragSpeedFloorMMPerS })
+    }
+
     /// Two more fingers landing during a tap-drag used to leave the mouse button down for
     /// good: the phase moved on to the three-finger gesture and nothing on the way out
     /// ever released it. The Mac stayed stuck selecting text until a real click.
@@ -606,6 +640,53 @@ struct ThreeFingerDragTests {
         let ended = events.filter { $0 == .dragEnded }.count
         #expect(began > 0)
         #expect(ended == began, "every press must be released")
+    }
+}
+
+/// The speed the acceleration curve is read at is a derived, noisy quantity, and the curve
+/// multiplies every millimetre by it — so noise in the estimate lands directly in the
+/// movement. Position is never smoothed; only this is.
+@Suite("Speed smoothing")
+struct SpeedSmoothingTests {
+    /// A finger hesitating, or a frame arriving late over Wi-Fi, looks identical to a
+    /// finger that stopped. Without damping the gain collapses for those frames and the
+    /// stroke visibly stutters.
+    private func stroke() -> TouchStreamBuilder {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 130)
+        stream.hold(0.02)
+        stream.move(0, dxMM: 0, dyMM: -40, over: 0.15)
+        stream.hold(0.05)
+        stream.move(0, dxMM: 0, dyMM: -20, over: 0.1)
+        stream.liftAll()
+        return stream
+    }
+
+    private func speeds(fallTime: Double) -> [Double] {
+        var config = GestureConfig()
+        config.speedFallTime = fallTime
+        return GestureRecognizer(config: config).run(stroke()).moveSpeeds
+    }
+
+    @Test("A still moment mid-stroke no longer collapses the gain")
+    func hesitationDoesNotCollapseTheGain() {
+        let smoothed = speeds(fallTime: GestureConfig().speedFallTime)
+        let raw = speeds(fallTime: 0)
+
+        // Ignore the opening frames, where both are still filling their window.
+        let smoothedFloor = smoothed.dropFirst(6).min() ?? 0
+        let rawFloor = raw.dropFirst(6).min() ?? 0
+        #expect(rawFloor < 1, "without damping the estimate reaches zero while the hand pauses")
+        #expect(smoothedFloor > 50)
+    }
+
+    /// Damping falls only. A flick has to reach its gain on the first frame, or the pointer
+    /// feels like it needs a run-up before it will cross the screen.
+    @Test("Damping costs nothing on the way up")
+    func risesArriveUndamped() {
+        let smoothed = speeds(fallTime: GestureConfig().speedFallTime)
+        let raw = speeds(fallTime: 0)
+        #expect(abs((smoothed.max() ?? 0) - (raw.max() ?? 0)) < 0.001)
     }
 }
 

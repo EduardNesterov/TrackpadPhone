@@ -92,6 +92,7 @@ public final class GestureRecognizer {
 
     private var velocityTracker = VelocityTracker()
     private var pointerVelocity = PointerVelocity()
+    private var speedSmoother = SpeedSmoother()
 
     private var lastClickTime: Double = -.infinity
     private var lastClickPosition = Vec()
@@ -110,6 +111,7 @@ public final class GestureRecognizer {
         lastSensorUs = nil
         velocityTracker.reset()
         pointerVelocity.reset()
+        speedSmoother.reset()
         lastClickCount = 0
         dragArmedUntil = -.infinity
         dragContacts = 0
@@ -182,6 +184,20 @@ public final class GestureRecognizer {
                 velocityY: coasting ? exit!.y : 0
             )
         )]
+    }
+
+    /// Builds a pointer move, carrying the speed the acceleration curve should be read at.
+    ///
+    /// Both corrections live here rather than in the curve, because both are about the
+    /// *estimate* and not about the shape of the response — and here they are testable
+    /// without a Mac.
+    private func moveEvent(delta: Vec, dt: Double, dragging: Bool = false) -> InputEvent {
+        pointerVelocity.add(delta: delta, dt: dt, at: now)
+        var speed = speedSmoother.follow(
+            pointerVelocity.speed, dt: dt, fallTime: config.speedFallTime
+        )
+        if dragging { speed = max(speed, config.dragSpeedFloorMMPerS) }
+        return .move(dxMM: delta.x, dyMM: delta.y, speedMMPerS: speed)
     }
 
     /// Closes whatever the current phase is holding open before another gesture takes the
@@ -295,6 +311,7 @@ public final class GestureRecognizer {
             phase = .oneFinger
             lastCentroid = contact.current
             pointerVelocity.reset()
+            speedSmoother.reset()
             return []
 
         case .oneFinger:
@@ -305,24 +322,22 @@ public final class GestureRecognizer {
             // before it starts.
             let delta = contact.current - contact.start
             lastCentroid = contact.current
-            pointerVelocity.add(delta: delta, dt: max(dt, now - contact.startTime), at: now)
-            let speed = pointerVelocity.speed
+            let elapsed = max(dt, now - contact.startTime)
 
             // If a tap just happened, this is the drag half of a tap-and-a-half rather
             // than a fresh pointer move.
             if now <= dragArmedUntil {
                 phase = .dragging
                 dragArmedUntil = -.infinity
-                return [.dragBegan, .move(dxMM: delta.x, dyMM: delta.y, speedMMPerS: speed)]
+                return [.dragBegan, moveEvent(delta: delta, dt: elapsed, dragging: true)]
             }
             phase = .pointing
-            return [.move(dxMM: delta.x, dyMM: delta.y, speedMMPerS: speed)]
+            return [moveEvent(delta: delta, dt: elapsed)]
 
         case .pointing, .dragging:
             let delta = contact.current - lastCentroid
             lastCentroid = contact.current
-            pointerVelocity.add(delta: delta, dt: dt, at: now)
-            return [.move(dxMM: delta.x, dyMM: delta.y, speedMMPerS: pointerVelocity.speed)]
+            return [moveEvent(delta: delta, dt: dt, dragging: phase == .dragging)]
 
         default:
             // A finger left a multi-finger gesture, so the hand is on its way off the
@@ -443,10 +458,13 @@ public final class GestureRecognizer {
             phase = .threeFingerDragging
             lastCentroid = current
             pointerVelocity.reset()
-            pointerVelocity.add(delta: delta, dt: max(dt, now - gestureStartTime), at: now)
+            speedSmoother.reset()
             // Down first, then the travel since touch-down: the press has to land where the
             // cursor still is, or the drag starts by missing what it was aimed at.
-            return [.dragBegan, .move(dxMM: delta.x, dyMM: delta.y, speedMMPerS: pointerVelocity.speed)]
+            return [
+                .dragBegan,
+                moveEvent(delta: delta, dt: max(dt, now - gestureStartTime), dragging: true),
+            ]
 
         case .threeFingerDragging:
             guard count >= 3 else {
@@ -464,8 +482,7 @@ public final class GestureRecognizer {
             }
             let delta = current - lastCentroid
             lastCentroid = current
-            pointerVelocity.add(delta: delta, dt: dt, at: now)
-            return [.move(dxMM: delta.x, dyMM: delta.y, speedMMPerS: pointerVelocity.speed)]
+            return [moveEvent(delta: delta, dt: dt, dragging: true)]
 
         case .threeFingerHeld:
             if count >= 3 {
@@ -475,6 +492,7 @@ public final class GestureRecognizer {
                 dragContacts = count
                 lastCentroid = current
                 pointerVelocity.reset()
+                speedSmoother.reset()
                 return []
             }
             guard now >= dragResumeDeadline else { return [] }

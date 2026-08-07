@@ -131,6 +131,11 @@ extension Array where Element == InputEvent {
         filter { if case .move = $0 { true } else { false } }
     }
 
+    /// The speeds the moves carry — what the acceleration curve is actually read at.
+    var moveSpeeds: [Double] {
+        compactMap { if case .move(_, _, let speed) = $0 { speed } else { nil } }
+    }
+
     var shortcuts: [InputEvent] {
         filter { if case .shortcut = $0 { true } else { false } }
     }

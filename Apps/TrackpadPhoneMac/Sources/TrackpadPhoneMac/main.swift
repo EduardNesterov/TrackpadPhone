@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import ServiceManagement
 import TrackpadInput
 import TrackpadMac
 
@@ -136,6 +137,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(disabled(settings.threeFingerDrag ? "   свайпи — чотирма" : "   свайпи — трьома"))
 
         menu.addItem(.separator())
+        // The phone cannot start this app: with nothing running there is nothing to hear
+        // the request. Being already running is the only way "press Connect and it works"
+        // can be true, so this is the setting that actually answers that wish.
+        let launch = NSMenuItem(
+            title: "Запускати при вході в систему",
+            action: #selector(toggleLaunchAtLogin),
+            keyEquivalent: ""
+        )
+        launch.target = self
+        launch.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        menu.addItem(launch)
+        if let note = launchAtLoginNote {
+            menu.addItem(disabled("   \(note)"))
+        }
+
+        menu.addItem(.separator())
         // Fires the shortcut without any phone involved. When a gesture "does nothing",
         // this separates a shortcut that never reaches the system from a gesture that was
         // never recognised — two very different bugs that look identical from the outside.
@@ -219,6 +236,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             synthesizer?.naturalScrolling = EventSynthesizer.systemNaturalScrolling() != settings.invertScroll
         }
         settings.save()
+        refreshMenu()
+    }
+
+    /// Shown under the login-item toggle when the last attempt did not take.
+    private var launchAtLoginNote: String?
+
+    /// Starts the app with the session, so the phone always has something to connect to.
+    ///
+    /// `SMAppService` registers *this bundle at this path* — move `TrackpadPhone.app` and
+    /// the login item points at where it used to be. macOS also shows the registration to
+    /// the user in Settings ▸ General ▸ Login Items, where they can revoke it behind our
+    /// back, so the menu reads the real status rather than a preference of our own.
+    @objc private func toggleLaunchAtLogin() {
+        let service = SMAppService.mainApp
+        launchAtLoginNote = nil
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+            } else {
+                try service.register()
+            }
+        } catch {
+            launchAtLoginNote = "не вдалося: \(error.localizedDescription)"
+            print("launch at login: \(error)")
+        }
         refreshMenu()
     }
 
@@ -386,6 +428,29 @@ struct Settings {
         defaults.set(threeFingerDrag, forKey: "threeFingerDrag")
         defaults.set(hasPromptedForAccessibility, forKey: "hasPromptedForAccessibility")
     }
+}
+
+/// `--login-item on|off|status` — set the login item and exit, without the menu bar.
+///
+/// The menu has the same switch; this exists so it can be scripted, and so that whether
+/// registration is accepted at all can be checked without a person clicking a menu item
+/// and reporting back. Login items are refused for bundles macOS distrusts — quarantined,
+/// translocated, badly signed — and the failure is silent from the user's side.
+if let index = CommandLine.arguments.firstIndex(of: "--login-item") {
+    let service = SMAppService.mainApp
+    let wanted = CommandLine.arguments.count > index + 1 ? CommandLine.arguments[index + 1] : "status"
+    do {
+        switch wanted {
+        case "on": try service.register()
+        case "off": try service.unregister()
+        default: break
+        }
+        print("login item: \(service.status == .enabled ? "enabled" : "status \(service.status.rawValue)")")
+    } catch {
+        print("login item failed: \(error)")
+        exit(1)
+    }
+    exit(0)
 }
 
 let application = NSApplication.shared

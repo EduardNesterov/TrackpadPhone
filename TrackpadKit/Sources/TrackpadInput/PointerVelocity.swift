@@ -1,5 +1,40 @@
 import Foundation
 
+/// Takes the jitter out of the speed the acceleration curve is read at.
+///
+/// The curve multiplies every millimetre of finger travel by a factor read from the current
+/// speed, so noise in the *estimate* becomes noise in the movement: a finger sliding at a
+/// constant pace produces cursor steps of different sizes frame after frame, and that — not
+/// the sensor — is what reads as a rough pointer. Frames arriving over Wi-Fi make it worse,
+/// because an interval stretched by the network looks exactly like a finger that slowed down.
+///
+/// Position is deliberately left alone. It is ground truth; filtering it would cost latency
+/// and quietly swallow travel, while filtering a derived quantity costs neither.
+///
+/// Rises pass through untouched and only falls decay. A flick has to reach its gain on the
+/// first frame or the pointer feels like it needs a run-up, and the estimate below already
+/// averages over a trailing window — so what is left worth removing is momentary dips.
+struct SpeedSmoother {
+    private var current: Double = 0
+
+    mutating func reset() {
+        current = 0
+    }
+
+    mutating func follow(_ speed: Double, dt: Double, fallTime: Double) -> Double {
+        guard dt > 0, fallTime > 0 else {
+            current = speed
+            return speed
+        }
+        if speed >= current {
+            current = speed
+        } else {
+            current += (speed - current) * (1 - exp(-dt / fallTime))
+        }
+        return current
+    }
+}
+
 /// Estimates how fast the finger is moving, for the acceleration curve to act on.
 ///
 /// A single frame's delta is far too noisy to drive gain — at 120 Hz one frame is under a
