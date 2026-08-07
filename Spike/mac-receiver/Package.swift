@@ -5,7 +5,7 @@ import PackageDescription
 // menubar app exists, but TrackpadProtocol is keeping.
 let package = Package(
     name: "mac-receiver",
-    platforms: [.macOS("14.2")],
+    platforms: [.macOS(.v14)],
     dependencies: [
         .package(path: "../../TrackpadKit"),
     ],

@@ -56,13 +56,6 @@ final class PhoneSession {
     }
 
     private let haptics = Haptics()
-    /// `var` so SwiftUI can bind the latency slider straight to it; the instance is
-    /// never replaced.
-    var audio = AudioPlayer()
-    let browser = MacBrowser()
-    /// Set when connected through Bonjour rather than by typed address — which is also
-    /// when the link is eligible for AWDL.
-    private(set) var connectedService: String?
 
     private static let hapticsKey = "trackpadphone.haptics"
     private static let hapticStrengthKey = "trackpadphone.hapticStrength"
@@ -105,18 +98,8 @@ final class PhoneSession {
 
     // MARK: - Connection
 
-    /// Connects to a discovered Mac. Preferred over the typed address: only a service
-    /// endpoint can end up on AWDL.
-    func connect(to found: MacBrowser.Found) {
-        disconnect()
-        connectedService = found.name
-        state = .connecting
-        start(NWConnection(to: found.endpoint, using: Self.parameters()))
-    }
-
     func connect() {
         disconnect()
-        connectedService = nil
         let trimmed = host.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, let port = NWEndpoint.Port(rawValue: Self.port) else {
             state = .failed("enter the Mac's address")
@@ -124,16 +107,9 @@ final class PhoneSession {
         }
 
         state = .connecting
-        start(NWConnection(host: NWEndpoint.Host(trimmed), port: port, using: Self.parameters()))
-    }
-
-    private static func parameters() -> NWParameters {
         let params = NWParameters.udp
         params.includePeerToPeer = true
-        return params
-    }
-
-    private func start(_ connection: NWConnection) {
+        let connection = NWConnection(host: NWEndpoint.Host(trimmed), port: port, using: params)
 
         connection.stateUpdateHandler = { [weak self] newState in
             Task { @MainActor in
@@ -158,7 +134,6 @@ final class PhoneSession {
     }
 
     func disconnect() {
-        connectedService = nil
         helloTimer?.invalidate()
         helloTimer = nil
         connection?.cancel()
@@ -277,9 +252,6 @@ final class PhoneSession {
 
     private func handle(_ data: Data) {
         switch try? Packet.decode(data) {
-        case .audio(let chunk):
-            audio.play(chunk)
-            return
         case .feedback(let feedback):
             haptics.play(feedback)
             return

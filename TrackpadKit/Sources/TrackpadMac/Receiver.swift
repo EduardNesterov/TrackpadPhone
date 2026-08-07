@@ -24,17 +24,8 @@ public final class Receiver: @unchecked Sendable {
     private let port: NWEndpoint.Port
     private var listener: NWListener?
     private var connections: [NWConnection] = []
-    /// Where to send feedback and audio. One phone at a time, so the most recent sender
-    /// is it.
+    /// Where to send feedback. One phone at a time, so the most recent sender is it.
     private var replyTo: NWConnection?
-
-    /// Pushes a packet to the connected phone, if there is one. Used by the audio stream,
-    /// which produces on its own clock rather than in reply to anything.
-    public func push(_ packet: Packet) {
-        queue.async { [weak self] in
-            self?.replyTo?.send(content: packet.encode(), completion: .idempotent)
-        }
-    }
 
     public init(session: Session, port: UInt16, queue: DispatchQueue) {
         self.session = session
@@ -54,10 +45,6 @@ public final class Receiver: @unchecked Sendable {
         params.includePeerToPeer = true
 
         let listener = try NWListener(using: params, on: port)
-        // Advertised under the Mac's own name, so the phone shows something recognisable
-        // rather than an address.
-        listener.service = NWListener.Service(name: Host.current().localizedName ?? "Mac",
-                                              type: bonjourServiceType)
         listener.newConnectionHandler = { [weak self] connection in
             guard let self else { return }
             self.connections.append(connection)
@@ -107,16 +94,12 @@ public final class Receiver: @unchecked Sendable {
             return
         }
 
-        // Remembered for anything the phone sent, not just touch frames. Setting it only
-        // on touches meant audio flowed only while a finger was on the glass — the stream
-        // would stop the moment the user let go, which is exactly when they are listening.
-        replyTo = connection
-
         switch packet {
         case .hello(let hello):
             session.handle(hello)
 
         case .touchFrame(let frame):
+            replyTo = connection
             let accepted = session.handle(frame, arrivedAtMs: Receiver.nowMs())
             if accepted {
                 // Bounce the frame's identity straight back. The phone owns the RTT
@@ -132,7 +115,7 @@ public final class Receiver: @unchecked Sendable {
         case .keyInput(let key):
             session.handle(key)
 
-        case .echoReply, .feedback, .audio:
+        case .echoReply, .feedback:
             break  // Mac never receives these.
         }
     }

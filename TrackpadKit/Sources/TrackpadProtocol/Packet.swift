@@ -11,7 +11,6 @@ import Foundation
 ///     keyInput    + u16 keyCode, u8 modifiers, u8 textLength, textLength × u8 (UTF-8)
 ///     echoReply   + u16 seq, u32 tSensorUs, u32 tServerUs
 ///     feedback    + u8 kind, u8 intensity
-///     audio       + u16 seq, u32 tHostUs, u16 frameCount, 2 × frameCount × i16
 ///
 /// A 5-finger frame is 50 bytes, so frames never fragment.
 public enum Packet: Sendable, Equatable {
@@ -20,7 +19,6 @@ public enum Packet: Sendable, Equatable {
     case keyInput(KeyInput)
     case echoReply(EchoReply)
     case feedback(Feedback)
-    case audio(AudioChunk)
 
     enum WireType: UInt8 {
         case touchFrame = 0x01
@@ -28,7 +26,6 @@ public enum Packet: Sendable, Equatable {
         case keyInput = 0x03
         case echoReply = 0x10
         case feedback = 0x11
-        case audio = 0x20
     }
 }
 
@@ -111,14 +108,6 @@ public extension Packet {
             w.u8(WireType.feedback.rawValue)
             w.u8(feedback.kind.rawValue)
             w.u8(feedback.intensity)
-
-        case .audio(let chunk):
-            w.u8(WireType.audio.rawValue)
-            w.u16(chunk.seq)
-            w.u32(chunk.tHostUs)
-            let frames = min(chunk.frameCount, AudioChunk.maxFrames)
-            w.u16(UInt16(frames))
-            for sample in chunk.samples.prefix(frames * 2) { w.i16(sample) }
         }
 
         return w.data
@@ -186,16 +175,6 @@ public extension Packet {
                 tSensorUs: try r.u32(),
                 tServerUs: try r.u32()
             ))
-
-        case .audio:
-            let seq = try r.u16()
-            let tHostUs = try r.u32()
-            let frames = Int(try r.u16())
-            guard frames <= AudioChunk.maxFrames else { throw ProtocolError.truncated }
-            var samples: [Int16] = []
-            samples.reserveCapacity(frames * 2)
-            for _ in 0 ..< frames * 2 { samples.append(try r.i16()) }
-            return .audio(AudioChunk(seq: seq, tHostUs: tHostUs, frameCount: frames, samples: samples))
 
         case .feedback:
             let rawKind = try r.u8()

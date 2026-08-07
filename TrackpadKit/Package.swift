@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "TrackpadKit",
-    platforms: [.macOS("14.2"), .iOS(.v17)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "TrackpadProtocol", targets: ["TrackpadProtocol"]),
         .library(name: "TrackpadInput", targets: ["TrackpadInput"]),

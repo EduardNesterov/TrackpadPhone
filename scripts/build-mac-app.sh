@@ -50,9 +50,6 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
     <key>LSUIElement</key>                 <true/>
     <key>NSLocalNetworkUsageDescription</key>
     <string>TrackpadPhone listens for your iPhone on this network. Nothing leaves it.</string>
-    <!-- Core Audio taps ask for this one; without it the tap is refused silently. -->
-    <key>NSAudioCaptureUsageDescription</key>
-    <string>TrackpadPhone sends the Mac's audio to your iPhone.</string>
 </dict>
 </plist>
 PLIST
