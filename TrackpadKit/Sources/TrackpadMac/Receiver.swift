@@ -103,12 +103,16 @@ public final class Receiver: @unchecked Sendable {
             return
         }
 
+        // Remembered for anything the phone sent, not just touch frames. Setting it only
+        // on touches meant audio flowed only while a finger was on the glass — the stream
+        // would stop the moment the user let go, which is exactly when they are listening.
+        replyTo = connection
+
         switch packet {
         case .hello(let hello):
             session.handle(hello)
 
         case .touchFrame(let frame):
-            replyTo = connection
             let accepted = session.handle(frame, arrivedAtMs: Receiver.nowMs())
             if accepted {
                 // Bounce the frame's identity straight back. The phone owns the RTT

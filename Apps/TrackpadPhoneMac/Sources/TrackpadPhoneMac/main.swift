@@ -74,6 +74,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             self?.runModifierProbe()
         }
+        // A menu bar icon is easy to lose among a dozen others, and the audio stream is
+        // the one thing here worth reaching without hunting for it.
+        DistributedNotificationCenter.default().addObserver(
+            forName: .init("TrackpadPhone.toggleAudio"), object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.toggleAudio()
+        }
 
         refreshMenu()
         // Ask on first launch. Afterwards the menu carries the reminder, because a modal
@@ -331,11 +338,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if audio.isRunning {
             audio.stop()
             audioError = nil
+            print("audio: stopped")
         } else {
             do {
                 try audio.start()
                 audioError = nil
+                print(String(format: "audio: started, buffer %.1f ms at %.0f Hz",
+                             audio.stats.captureBufferMs, audio.stats.sampleRate))
             } catch {
+                print("audio: failed — \(error)")
                 // Almost always the missing System Audio Recording grant, which macOS asks
                 // for on the first attempt and denies silently until given.
                 audioError = "Немає дозволу на запис звуку системи?  \(error)"
