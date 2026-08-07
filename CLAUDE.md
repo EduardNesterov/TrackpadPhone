@@ -21,7 +21,7 @@ xcrun devicectl device install app --device A7133E21-F8C9-5235-A32B-A8AA0EADF8C8
   ~/Library/Developer/Xcode/DerivedData/TrackpadPhone-*/Build/Products/Debug-iphoneos/TrackpadPhone.app
 ```
 
-Тесты: `swift test --package-path TrackpadKit` (67 шт.).
+Тесты: `swift test --package-path TrackpadKit` (76 шт.).
 Отладка: приложение пишет распознанные события в `/tmp/trackpadphone.log`.
 
 ## Устройство

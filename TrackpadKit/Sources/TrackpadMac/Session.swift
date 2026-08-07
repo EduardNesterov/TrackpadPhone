@@ -110,6 +110,19 @@ public final class Session {
         return true
     }
 
+    /// Ends a drag that the phone walked away from.
+    ///
+    /// A three-finger drag holds the button down through the fingers leaving, so they can
+    /// land again and carry on. Nothing in that mechanism notices a phone that never comes
+    /// back — app backgrounded, Wi-Fi gone — and the price of not noticing is a Mac with
+    /// its mouse button stuck down. The receiver calls this once a second.
+    public func endDragIfPhoneWentAway(nowMs: Double) {
+        guard let last = lastArrivalMs, nowMs - last > 1500 else { return }
+        // Frames may well resume later. Without the reset the recogniser would still
+        // believe it is carrying something and move the cursor as a drag that has ended.
+        if synthesizer.releaseDrag() { recognizer.reset() }
+    }
+
     /// Zoom is deliberately absent: a pinch emits a step every few millimetres, and
     /// buzzing on each one turns a smooth gesture into a rattle.
     private static func feedback(for event: InputEvent) -> Feedback? {

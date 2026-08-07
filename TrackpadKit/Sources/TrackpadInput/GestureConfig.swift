@@ -51,7 +51,26 @@ public struct GestureConfig: Sendable, Equatable {
 
     // MARK: Three fingers
 
-    /// Centroid travel before a three-finger swipe fires.
+    /// Three fingers hold the button down and drag, the way macOS's own three-finger drag
+    /// does.
+    ///
+    /// It costs the three-finger swipes, which move to four — the same trade macOS makes
+    /// when the setting is turned on, and for the same reason: a drag and a swipe both
+    /// begin as three fingers moving, so no threshold separates them without making one of
+    /// them fire by accident.
+    public var threeFingerDrag = true
+    /// Centroid travel before three fingers commit to dragging. Smaller than the tap slop
+    /// because three fingers rest steadier than one, and a drag that hesitates before it
+    /// picks anything up feels like the surface is stuck.
+    public var dragSlopMM: Double = 1.5
+    /// How long the button stays down after the fingers leave, waiting for them to return.
+    ///
+    /// Not a nicety: the surface is 65 mm wide and a window crossing a desktop needs more
+    /// travel than that, so lifting and re-grabbing has to continue the same drag instead
+    /// of dropping what it is carrying. Long enough to lift and replace a hand, short
+    /// enough that a deliberate release does not feel sticky.
+    public var dragResumeWindow: Double = 0.35
+    /// Centroid travel before a swipe fires.
     public var swipeThresholdMM: Double = 12.0
 
     public init() {}

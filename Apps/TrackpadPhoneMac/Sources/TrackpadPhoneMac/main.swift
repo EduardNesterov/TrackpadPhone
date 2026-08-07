@@ -20,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let queue = DispatchQueue(label: "trackpadphone.receiver")
     private var receiver: Receiver!
     private var synthesizer: EventSynthesizer!
+    /// Held so the gesture thresholds can be changed while the receiver runs, the same way
+    /// the sliders change the synthesiser's.
+    private var recognizer: GestureRecognizer!
 
     private var status: Receiver.Status = .starting {
         didSet { refreshMenu() }
@@ -38,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         var config = GestureConfig()
         config.scrollGain = settings.scrollGain
+        config.threeFingerDrag = settings.threeFingerDrag
 
         synthesizer = EventSynthesizer(queue: queue, config: config)
         synthesizer.acceleration.sensitivity = settings.sensitivity
@@ -48,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         freopen(Self.logPath, "w", stdout)
         setvbuf(stdout, nil, _IOLBF, 0)
 
-        let recognizer = GestureRecognizer(config: config)
+        recognizer = GestureRecognizer(config: config)
         let session = Session(recognizer: recognizer, synthesizer: synthesizer)
         session.debug = true
 
@@ -120,6 +124,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         invert.target = self
         invert.state = settings.invertScroll ? .on : .off
         menu.addItem(invert)
+
+        let drag = NSMenuItem(
+            title: "Перетягування трьома пальцями",
+            action: #selector(toggleThreeFingerDrag),
+            keyEquivalent: ""
+        )
+        drag.target = self
+        drag.state = settings.threeFingerDrag ? .on : .off
+        menu.addItem(drag)
+        menu.addItem(disabled(settings.threeFingerDrag ? "   свайпи — чотирма" : "   свайпи — трьома"))
 
         menu.addItem(.separator())
         // Fires the shortcut without any phone involved. When a gesture "does nothing",
@@ -203,6 +217,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.invertScroll.toggle()
         queue.async { [synthesizer, settings] in
             synthesizer?.naturalScrolling = EventSynthesizer.systemNaturalScrolling() != settings.invertScroll
+        }
+        settings.save()
+        refreshMenu()
+    }
+
+    /// Three fingers drag, or three fingers swipe — not both.
+    ///
+    /// A drag and a swipe both start as three fingers moving, so nothing tells them apart
+    /// early enough to be reliable. macOS makes the same trade in its own settings: turn
+    /// the three-finger drag on and the swipes move to four fingers.
+    @objc private func toggleThreeFingerDrag() {
+        settings.threeFingerDrag.toggle()
+        queue.async { [recognizer, settings] in
+            recognizer?.config.threeFingerDrag = settings.threeFingerDrag
         }
         settings.save()
         refreshMenu()
@@ -328,6 +356,7 @@ struct Settings {
     var sensitivity: Double = 1.0
     var scrollGain: Double = 16.0
     var invertScroll = false
+    var threeFingerDrag = true
     var hasPromptedForAccessibility = false
 
     static func load() -> Settings {
@@ -340,6 +369,11 @@ struct Settings {
             settings.scrollGain = defaults.double(forKey: "scrollGain")
         }
         settings.invertScroll = defaults.bool(forKey: "invertScroll")
+        // Defaults to on, so it cannot be read with `bool(forKey:)` — an absent key and a
+        // deliberate "off" both read as false.
+        if defaults.object(forKey: "threeFingerDrag") != nil {
+            settings.threeFingerDrag = defaults.bool(forKey: "threeFingerDrag")
+        }
         settings.hasPromptedForAccessibility = defaults.bool(forKey: "hasPromptedForAccessibility")
         return settings
     }
@@ -349,6 +383,7 @@ struct Settings {
         defaults.set(sensitivity, forKey: "sensitivity")
         defaults.set(scrollGain, forKey: "scrollGain")
         defaults.set(invertScroll, forKey: "invertScroll")
+        defaults.set(threeFingerDrag, forKey: "threeFingerDrag")
         defaults.set(hasPromptedForAccessibility, forKey: "hasPromptedForAccessibility")
     }
 }

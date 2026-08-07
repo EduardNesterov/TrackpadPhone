@@ -208,14 +208,16 @@ struct ScrollTests {
         #expect(!GestureRecognizer().run(stream).scrolls.isEmpty)
     }
 
-    @Test("Three fingers landing one by one still swipe")
-    func staggeredThreeFingerSwipe() {
+    @Test("Fingers landing one by one still swipe")
+    func staggeredSwipe() {
         var stream = TouchStreamBuilder()
-        stream.place(0, xMM: 20, yMM: 100)
+        stream.place(0, xMM: 15, yMM: 100)
         stream.hold(0.03)
-        stream.place(1, xMM: 35, yMM: 100)
+        stream.place(1, xMM: 30, yMM: 100)
         stream.hold(0.03)
-        stream.place(2, xMM: 50, yMM: 100)
+        stream.place(2, xMM: 45, yMM: 100)
+        stream.hold(0.03)
+        stream.place(3, xMM: 60, yMM: 100)
         stream.hold(0.02)
         stream.moveAll(dxMM: 0, dyMM: -30, over: 0.2)
         stream.liftAll()
@@ -341,12 +343,13 @@ struct GestureTests {
         #expect(steps < 0)
     }
 
-    @Test("Three fingers up open Mission Control")
-    func threeFingerSwipeUp() {
+    @Test("Four fingers up open Mission Control")
+    func swipeUp() {
         var stream = TouchStreamBuilder()
-        stream.place(0, xMM: 20, yMM: 100)
-        stream.place(1, xMM: 35, yMM: 100)
-        stream.place(2, xMM: 50, yMM: 100)
+        stream.place(0, xMM: 15, yMM: 100)
+        stream.place(1, xMM: 30, yMM: 100)
+        stream.place(2, xMM: 45, yMM: 100)
+        stream.place(3, xMM: 60, yMM: 100)
         stream.hold(0.02)
         stream.moveAll(dxMM: 0, dyMM: -30, over: 0.2)
         stream.liftAll()
@@ -354,12 +357,13 @@ struct GestureTests {
         #expect(GestureRecognizer().run(stream).shortcuts == [.shortcut(.missionControl)])
     }
 
-    @Test("Three fingers sideways navigate back, once per swipe")
-    func threeFingerSwipeSideways() {
+    @Test("Four fingers sideways navigate back, once per swipe")
+    func swipeSideways() {
         var stream = TouchStreamBuilder()
-        stream.place(0, xMM: 45, yMM: 75)
-        stream.place(1, xMM: 55, yMM: 75)
-        stream.place(2, xMM: 65, yMM: 75)
+        stream.place(0, xMM: 35, yMM: 75)
+        stream.place(1, xMM: 45, yMM: 75)
+        stream.place(2, xMM: 55, yMM: 75)
+        stream.place(3, xMM: 65, yMM: 75)
         stream.hold(0.02)
         stream.moveAll(dxMM: -35, dyMM: 0, over: 0.25)
         stream.liftAll()
@@ -368,17 +372,39 @@ struct GestureTests {
         #expect(GestureRecognizer().run(stream).shortcuts == [.shortcut(.navigateBack)])
     }
 
-    /// Landing a third finger during a scroll is ordinary. If the scroll is not closed,
+    /// With the three-finger drag turned off the swipes go back where they were, and this
+    /// is the only thing that proves the mapping actually moved rather than the recogniser
+    /// having grown a second, permanent one.
+    @Test("With the drag off, three fingers swipe again")
+    func threeFingerSwipeWithoutDrag() {
+        var config = GestureConfig()
+        config.threeFingerDrag = false
+
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 100)
+        stream.place(1, xMM: 35, yMM: 100)
+        stream.place(2, xMM: 50, yMM: 100)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -30, over: 0.2)
+        stream.liftAll()
+
+        let events = GestureRecognizer(config: config).run(stream)
+        #expect(events.shortcuts == [.shortcut(.missionControl)])
+        #expect(!events.contains(.dragBegan), "nothing should be picked up when the drag is off")
+    }
+
+    /// Landing a fourth finger during a scroll is ordinary. If the scroll is not closed,
     /// the system keeps holding an unfinished gesture — no rubber-band release, no
-    /// momentum, and it can swallow the very shortcut the third finger is asking for.
-    @Test("A third finger during a scroll closes the scroll first")
-    func thirdFingerClosesScroll() {
+    /// momentum, and it can swallow the very shortcut the fourth finger is asking for.
+    @Test("A fourth finger during a scroll closes the scroll first")
+    func fourthFingerClosesScroll() {
         var stream = TouchStreamBuilder()
         stream.place(0, xMM: 20, yMM: 100)
         stream.place(1, xMM: 35, yMM: 100)
         stream.hold(0.02)
         stream.moveAll(dxMM: 0, dyMM: -10, over: 0.1)
         stream.place(2, xMM: 50, yMM: 90)
+        stream.place(3, xMM: 62, yMM: 90)
         stream.hold(0.02)
         stream.moveAll(dxMM: 0, dyMM: -30, over: 0.2)
         stream.liftAll()
@@ -393,17 +419,193 @@ struct GestureTests {
         #expect(events.shortcuts == [.shortcut(.missionControl)])
     }
 
-    @Test("A short three-finger movement fires nothing")
-    func threeFingerJitterIsIgnored() {
+    @Test("A short four-finger movement fires nothing")
+    func fourFingerJitterIsIgnored() {
         var stream = TouchStreamBuilder()
-        stream.place(0, xMM: 20, yMM: 75)
-        stream.place(1, xMM: 35, yMM: 75)
-        stream.place(2, xMM: 50, yMM: 75)
+        stream.place(0, xMM: 15, yMM: 75)
+        stream.place(1, xMM: 30, yMM: 75)
+        stream.place(2, xMM: 45, yMM: 75)
+        stream.place(3, xMM: 60, yMM: 75)
         stream.hold(0.02)
         stream.moveAll(dxMM: 4, dyMM: 2, over: 0.1)
         stream.liftAll()
 
         #expect(GestureRecognizer().run(stream).shortcuts.isEmpty)
+    }
+}
+
+/// Three fingers hold the mouse button down and carry the pointer.
+///
+/// Most of what is worth testing here is about the surface being small: the drag has to
+/// survive a hand lifting off and landing again, and it has to survive fingers arriving
+/// and leaving one at a time, which is the only way they ever do.
+@Suite("Three-finger drag")
+struct ThreeFingerDragTests {
+    /// Places three fingers and drags them, without lifting.
+    private func dragStream(dxMM: Double, dyMM: Double) -> TouchStreamBuilder {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 100)
+        stream.place(1, xMM: 35, yMM: 100)
+        stream.place(2, xMM: 50, yMM: 100)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: dxMM, dyMM: dyMM, over: 0.2)
+        return stream
+    }
+
+    @Test("Three fingers moving pick the pointer up and carry it")
+    func threeFingersDrag() {
+        var stream = dragStream(dxMM: 0, dyMM: -30)
+        stream.liftAll()
+        stream.hold(0.5)
+
+        let events = GestureRecognizer().run(stream)
+
+        #expect(events.filter { $0 == .dragBegan }.count == 1)
+        #expect(events.filter { $0 == .dragEnded }.count == 1)
+        #expect(events.last == .dragEnded, "the button must come up after the travel, not during")
+        // The whole travel arrives: the slop delays the decision, not the movement.
+        #expect(abs(events.totalMoveMM.y + 30) < 0.5)
+    }
+
+    @Test("A three-finger tap picks nothing up")
+    func threeFingerTapDoesNothing() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 100)
+        stream.place(1, xMM: 35, yMM: 100)
+        stream.place(2, xMM: 50, yMM: 100)
+        stream.hold(0.05)
+        stream.liftAll()
+        stream.hold(0.5)
+
+        let events = GestureRecognizer().run(stream)
+        #expect(!events.contains(.dragBegan))
+        #expect(!events.contains(.dragEnded))
+        #expect(events.clicks.isEmpty, "and it is not a click either")
+    }
+
+    /// The pitfall this project has now paid for three times: fingers never leave in the
+    /// same frame. A drag that ended when the surface finally emptied would first spend
+    /// two frames handing the leftovers to the pointer — dropping the file somewhere on
+    /// the way to wherever it was going.
+    @Test("Lifting one finger at a time does not drop what is being carried")
+    func raggedLiftKeepsHold() {
+        var stream = dragStream(dxMM: 0, dyMM: -30)
+        stream.lift(2)
+        stream.lift(1)
+        stream.lift(0)
+        stream.hold(0.5)
+
+        let events = GestureRecognizer().run(stream)
+        #expect(events.filter { $0 == .dragEnded }.count == 1)
+
+        // Nothing may move after the fingers start leaving: the centroid of what is left
+        // is not where the hand is.
+        let afterLift = Array(events.drop { $0 != .dragEnded })
+        #expect(afterLift.moves.isEmpty)
+    }
+
+    /// The reason the drag outlives the fingers at all. The surface is 65 mm wide and a
+    /// window crossing a desktop needs several times that.
+    @Test("Fingers landing again inside the window continue the same drag")
+    func reGrabContinuesTheDrag() {
+        var stream = dragStream(dxMM: 0, dyMM: -30)
+        stream.liftAll()
+        stream.hold(0.15)
+        stream.place(0, xMM: 20, yMM: 100)
+        stream.place(1, xMM: 35, yMM: 100)
+        stream.place(2, xMM: 50, yMM: 100)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -30, over: 0.2)
+        stream.liftAll()
+        stream.hold(0.5)
+
+        let events = GestureRecognizer().run(stream)
+        #expect(events.filter { $0 == .dragBegan }.count == 1, "one press, not two")
+        #expect(events.filter { $0 == .dragEnded }.count == 1)
+        // Both halves of the travel land, and the surface jumping back to the start
+        // between them does not.
+        #expect(abs(events.totalMoveMM.y + 60) < 1.0)
+    }
+
+    @Test("Landing again after the window is a new gesture, not the old drag")
+    func lateReGrabDoesNotContinue() {
+        var stream = dragStream(dxMM: 0, dyMM: -30)
+        stream.liftAll()
+        stream.hold(0.6)
+        stream.place(0, xMM: 20, yMM: 100)
+        stream.place(1, xMM: 35, yMM: 100)
+        stream.place(2, xMM: 50, yMM: 100)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -20, over: 0.2)
+        stream.liftAll()
+        stream.hold(0.5)
+
+        let events = GestureRecognizer().run(stream)
+        #expect(events.filter { $0 == .dragBegan }.count == 2)
+        #expect(events.filter { $0 == .dragEnded }.count == 2)
+    }
+
+    /// A fourth finger joining moves the centroid by centimetres without the hand moving
+    /// at all. Following it would fling whatever is being carried across the screen.
+    @Test("A finger joining mid-drag does not jerk the pointer")
+    func extraFingerDoesNotJerk() {
+        var stream = dragStream(dxMM: 0, dyMM: -20)
+        stream.place(3, xMM: 20, yMM: 30)
+        stream.hold(0.05)
+        stream.moveAll(dxMM: 0, dyMM: -10, over: 0.1)
+        stream.liftAll()
+        stream.hold(0.5)
+
+        let events = GestureRecognizer().run(stream)
+        #expect(events.filter { $0 == .dragBegan }.count == 1, "a fourth finger must not swipe")
+        #expect(events.shortcuts.isEmpty)
+        #expect(abs(events.totalMoveMM.y + 30) < 1.0, "only the hand's own travel counts")
+    }
+
+    /// Before the drag commits nothing has been picked up, so a fourth finger is still
+    /// free to mean a swipe. This is what keeps four-finger gestures reachable at all —
+    /// a hand cannot put four fingers down without passing through three.
+    @Test("A fourth finger before the drag commits still swipes")
+    func fourthFingerBeforeCommitSwipes() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 15, yMM: 100)
+        stream.place(1, xMM: 30, yMM: 100)
+        stream.place(2, xMM: 45, yMM: 100)
+        stream.hold(0.03)
+        stream.place(3, xMM: 60, yMM: 100)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: -30, over: 0.2)
+        stream.liftAll()
+        stream.hold(0.5)
+
+        let events = GestureRecognizer().run(stream)
+        #expect(events.shortcuts == [.shortcut(.missionControl)])
+        #expect(!events.contains(.dragBegan))
+    }
+
+    /// Two more fingers landing during a tap-drag used to leave the mouse button down for
+    /// good: the phase moved on to the three-finger gesture and nothing on the way out
+    /// ever released it. The Mac stayed stuck selecting text until a real click.
+    @Test("Landing three fingers during a tap-drag releases the button")
+    func tapDragThenThreeFingersReleases() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 75)
+        stream.hold(0.05)
+        stream.liftAll()
+        stream.place(0, xMM: 30, yMM: 75)
+        stream.hold(0.02)
+        stream.move(0, dxMM: 10, dyMM: 0, over: 0.1)
+        stream.place(1, xMM: 45, yMM: 75)
+        stream.place(2, xMM: 58, yMM: 75)
+        stream.hold(0.05)
+        stream.liftAll()
+        stream.hold(0.5)
+
+        let events = GestureRecognizer().run(stream)
+        let began = events.filter { $0 == .dragBegan }.count
+        let ended = events.filter { $0 == .dragEnded }.count
+        #expect(began > 0)
+        #expect(ended == began, "every press must be released")
     }
 }
 

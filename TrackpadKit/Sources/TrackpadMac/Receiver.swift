@@ -129,6 +129,7 @@ public final class Receiver: @unchecked Sendable {
         timer.schedule(deadline: .now() + 1, repeating: 1)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+            self.session.endDragIfPhoneWentAway(nowMs: Receiver.nowMs())
             let stats = self.session.drainStats()
             guard self.logsStatistics, stats.frames > 0 else { return }
             let gaps = stats.interArrivalMs.sorted()

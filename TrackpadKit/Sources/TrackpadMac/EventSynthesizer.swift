@@ -63,8 +63,7 @@ public final class EventSynthesizer {
             post(.leftMouseDown, clickState: 1)
 
         case .dragEnded:
-            isDragging = false
-            post(.leftMouseUp, clickState: 1)
+            releaseDrag()
 
         case .scroll(let dx, let dy, let phase):
             scroll(dxMM: dx, dyMM: dy, phase: phase)
@@ -99,6 +98,23 @@ public final class EventSynthesizer {
         position.y = min(max(position.y + stepY, bounds.minY), bounds.maxY - 1)
 
         post(isDragging ? .leftMouseDragged : .mouseMoved, deltaX: Int64(stepX), deltaY: Int64(stepY))
+    }
+
+    /// Lets go of the mouse button if a drag is still open.
+    ///
+    /// The three-finger drag deliberately outlives the fingers leaving the surface, so that
+    /// a hand can re-grab and carry on. That is right while the phone is there and a trap
+    /// when it stops being there: an app backgrounded or a Wi-Fi drop mid-drag would leave
+    /// the button held down with nothing left to release it. Guarding on `isDragging` also
+    /// keeps a late `dragEnded` from ending a drag the user started with a real mouse.
+    ///
+    /// - Returns: true if a drag was actually released.
+    @discardableResult
+    public func releaseDrag() -> Bool {
+        guard isDragging else { return false }
+        isDragging = false
+        post(.leftMouseUp, clickState: 1)
+        return true
     }
 
     /// Re-read the real cursor position, so we don't fight a mouse the user just moved.

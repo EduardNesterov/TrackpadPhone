@@ -54,7 +54,15 @@ public final class GestureRecognizer {
         case twoFinger
         case scrolling
         case pinching
-        case threeFinger
+        /// Enough fingers for a swipe are down; waiting to see it travel far enough.
+        case swipeArmed
+        /// Three fingers down, nothing picked up yet.
+        case threeFingerArmed
+        /// Three fingers carrying the pointer with the button held down.
+        case threeFingerDragging
+        /// The hand left mid-drag. The button stays down for a moment in case it comes
+        /// back, which is what makes a 65-mm surface enough to cross a desktop.
+        case threeFingerHeld
         /// A gesture already fired, or a finger lifted mid-gesture. Swallow everything
         /// until the surface is clear — otherwise lifting one finger out of two would
         /// hand the remaining one to the pointer and make the cursor jump.
@@ -90,6 +98,12 @@ public final class GestureRecognizer {
     private var lastClickCount = 0
     private var dragArmedUntil: Double = -.infinity
 
+    /// How many fingers the three-finger drag last saw. A finger joining or leaving moves
+    /// the centroid without the hand moving at all, and following that would throw the
+    /// cursor across the screen mid-drag.
+    private var dragContacts = 0
+    private var dragResumeDeadline: Double = -.infinity
+
     public func reset() {
         phase = .idle
         tracked.removeAll()
@@ -98,6 +112,13 @@ public final class GestureRecognizer {
         pointerVelocity.reset()
         lastClickCount = 0
         dragArmedUntil = -.infinity
+        dragContacts = 0
+        dragResumeDeadline = -.infinity
+    }
+
+    /// True while the drag owns the surface, whether or not fingers are on it.
+    private var isThreeFingerDragging: Bool {
+        phase == .threeFingerArmed || phase == .threeFingerDragging || phase == .threeFingerHeld
     }
 
     // MARK: Entry point
@@ -116,13 +137,22 @@ public final class GestureRecognizer {
 
         updateTracked(positions)
 
+        // A running three-finger drag owns every contact count, including zero. The button
+        // is down, so handing one or two fingers left over from an untidy lift back to the
+        // pointer would drop whatever is being carried, halfway to wherever it was going.
+        if isThreeFingerDragging {
+            return handleThreeFingerDrag(count: positions.count, dt: dt)
+        }
+
         switch positions.count {
         case 0: events += handleLiftOff()
         case 1: events += handleOneFinger(dt: dt)
         case 2: events += handleTwoFingers(dt: dt)
-        case 3: events += handleThreeFingers()
+        case 3 where config.threeFingerDrag: events += armThreeFingerDrag()
+        case 3: events += handleSwipe()
+        case 4 where config.threeFingerDrag: events += handleSwipe()
         default:
-            events += closeScroll()
+            events += closeCurrentGesture()
             phase = .ignoring
         }
 
@@ -152,6 +182,16 @@ public final class GestureRecognizer {
                 velocityY: coasting ? exit!.y : 0
             )
         )]
+    }
+
+    /// Closes whatever the current phase is holding open before another gesture takes the
+    /// surface.
+    ///
+    /// A scroll left unfinished leaves the system inside a gesture that never ended. A drag
+    /// left unfinished leaves the mouse button physically *down*, and nothing later in the
+    /// stream releases it — landing two more fingers during a tap-drag did exactly that.
+    private func closeCurrentGesture() -> [InputEvent] {
+        phase == .dragging ? [.dragEnded] : closeScroll()
     }
 
     /// Wrapping subtraction: the phone's microsecond counter rolls over every 71 minutes,
@@ -363,13 +403,97 @@ public final class GestureRecognizer {
         return [.zoom(steps: step - lastZoomStep)]
     }
 
-    // MARK: Three fingers
+    // MARK: Three-finger drag
 
-    private func handleThreeFingers() -> [InputEvent] {
+    private func armThreeFingerDrag() -> [InputEvent] {
+        // A gesture that already fired keeps the surface until the hand leaves; picking
+        // something up on the way out is not what the fingers meant.
+        guard phase != .ignoring else { return [] }
+        let closing = closeCurrentGesture()
+        phase = .threeFingerArmed
+        gestureAnchor = centroid
+        gestureStartTime = now
+        dragContacts = 3
+        return closing
+    }
+
+    /// Three fingers press the button and carry the pointer with their centroid.
+    ///
+    /// The whole of it is written around the surface being small. A phone is 65 mm across;
+    /// a window crossing a desktop needs several times that, so the drag has to survive the
+    /// hand lifting and landing again. That is why the button stays down through
+    /// `.threeFingerHeld` instead of the gesture ending where the fingers do.
+    private func handleThreeFingerDrag(count: Int, dt: Double) -> [InputEvent] {
         let current = centroid
 
         switch phase {
-        case .threeFinger:
+        case .threeFingerArmed:
+            // Nothing has been picked up yet, so a fourth finger is still free to mean
+            // something else. Once the button is down it is not.
+            if count >= 4 { return handleSwipe() }
+            guard count >= 3 else {
+                // Three fingers tapped, or one left before the drag committed. Either way
+                // nothing was picked up, so there is nothing to drop — and the leftovers
+                // are a hand on its way off, not a new gesture.
+                phase = count == 0 ? .idle : .ignoring
+                return []
+            }
+            let delta = current - gestureAnchor
+            guard delta.length > config.dragSlopMM else { return [] }
+            phase = .threeFingerDragging
+            lastCentroid = current
+            pointerVelocity.reset()
+            pointerVelocity.add(delta: delta, dt: max(dt, now - gestureStartTime), at: now)
+            // Down first, then the travel since touch-down: the press has to land where the
+            // cursor still is, or the drag starts by missing what it was aimed at.
+            return [.dragBegan, .move(dxMM: delta.x, dyMM: delta.y, speedMMPerS: pointerVelocity.speed)]
+
+        case .threeFingerDragging:
+            guard count >= 3 else {
+                // Fingers never leave together, so a lift shows up as 3 → 2 and *this* is
+                // where the re-grab window starts. Waiting for the surface to empty would
+                // spend most of the window on the fingers still coming off.
+                phase = .threeFingerHeld
+                dragResumeDeadline = now + config.dragResumeWindow
+                return []
+            }
+            guard count == dragContacts else {
+                dragContacts = count
+                lastCentroid = current
+                return []
+            }
+            let delta = current - lastCentroid
+            lastCentroid = current
+            pointerVelocity.add(delta: delta, dt: dt, at: now)
+            return [.move(dxMM: delta.x, dyMM: delta.y, speedMMPerS: pointerVelocity.speed)]
+
+        case .threeFingerHeld:
+            if count >= 3 {
+                // Back on the surface in time: same drag, new grip. No `dragBegan` — the
+                // button never came up, and re-announcing it would buzz and re-click.
+                phase = .threeFingerDragging
+                dragContacts = count
+                lastCentroid = current
+                pointerVelocity.reset()
+                return []
+            }
+            guard now >= dragResumeDeadline else { return [] }
+            phase = count == 0 ? .idle : .ignoring
+            return [.dragEnded]
+
+        default:
+            return []
+        }
+    }
+
+    // MARK: Swipes
+
+    /// Four fingers while the three-finger drag is on, three while it is off.
+    private func handleSwipe() -> [InputEvent] {
+        let current = centroid
+
+        switch phase {
+        case .swipeArmed:
             let delta = current - gestureAnchor
             guard max(abs(delta.x), abs(delta.y)) > config.swipeThresholdMM else { return [] }
             phase = .ignoring
@@ -385,8 +509,8 @@ public final class GestureRecognizer {
             return []
 
         default:
-            let closing = closeScroll()
-            phase = .threeFinger
+            let closing = closeCurrentGesture()
+            phase = .swipeArmed
             gestureAnchor = current
             lastCentroid = current
             return closing
