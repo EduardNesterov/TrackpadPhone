@@ -67,15 +67,13 @@ struct ContentView: View {
             }
             .allowsHitTesting(!showSettings)
 
-            // Live finger count. Makes "the gesture did nothing" answer itself: if two
-            // fingers on the glass still read 1, the phone is not seeing them and there
-            // is no point looking at the Mac.
-            if session.liveContacts > 0 {
-                Text("\(session.liveContacts)")
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .allowsHitTesting(false)
-            }
+            // Fingers seen in the last gesture. Makes "the gesture did nothing" answer
+            // itself: swipe with three, lift, and if this still reads 2 the phone never
+            // saw the third and there is no point looking at the Mac.
+            Text(session.peakContacts > 0 ? "\(session.peakContacts)" : "–")
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .allowsHitTesting(false)
         }
         .opacity(showSettings ? 0 : 0.55)
         .padding(.leading, 14)

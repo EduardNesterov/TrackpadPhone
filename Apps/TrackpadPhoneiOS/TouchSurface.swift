@@ -36,14 +36,22 @@ final class TouchSurfaceView: UIView {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
-            let key = ObjectIdentifier(touch)
-            if ids[key] == nil {
-                ids[key] = nextID
-                nextID &+= 1
-            }
-            live[key] = touch
+            live[ObjectIdentifier(touch)] = touch
+            _ = identifier(for: touch)
         }
         emitSnapshot(at: touches.first?.timestamp)
+    }
+
+    /// Stable wire id for a finger, assigned on first sight. Doing it on demand rather
+    /// than only in `touchesBegan` means a touch that somehow reaches us without one
+    /// still gets a distinct id instead of silently borrowing another finger's.
+    private func identifier(for touch: UITouch) -> UInt8 {
+        let key = ObjectIdentifier(touch)
+        if let existing = ids[key] { return existing }
+        let assigned = nextID
+        ids[key] = assigned
+        nextID &+= 1
+        return assigned
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -103,7 +111,10 @@ final class TouchSurfaceView: UIView {
         default: .moved
         }
         return Contact(
-            id: ids[ObjectIdentifier(touch)] ?? 0,
+            // Never fall back to a fixed id here. The Mac keys contacts by id, so two
+            // fingers sharing one collapse into a single contact — three fingers would
+            // arrive as two and the gesture would be misread rather than fail loudly.
+            id: identifier(for: touch),
             phase: phase,
             x: size.width > 0 ? Float(point.x / size.width) : 0,
             y: size.height > 0 ? Float(point.y / size.height) : 0,
