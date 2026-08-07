@@ -49,6 +49,7 @@ final class PhoneSession {
 
     private let queue = DispatchQueue(label: "trackpadphone.sender")
     private var connection: NWConnection?
+    private var helloTimer: Timer?
     private var sequence: UInt16 = 0
     private let sessionID = UInt32.random(in: .min ... .max)
     private let startedAt = CACurrentMediaTime()
@@ -88,6 +89,7 @@ final class PhoneSession {
                 case .ready:
                     self.state = .connected
                     self.sendHello()
+                    self.startHelloTimer()
                 case .failed(let error):
                     self.state = .failed(error.localizedDescription)
                 case .cancelled:
@@ -103,6 +105,8 @@ final class PhoneSession {
     }
 
     func disconnect() {
+        helloTimer?.invalidate()
+        helloTimer = nil
         connection?.cancel()
         connection = nil
         state = .idle
@@ -127,6 +131,22 @@ final class PhoneSession {
     }
 
     private var surfaceMM = CGSize(width: 70, height: 150)
+
+    /// Repeats `hello` while connected.
+    ///
+    /// UDP has no session, so restarting the Mac receiver is invisible to the phone: it
+    /// keeps sending frames to a listener that never learned the surface size and is
+    /// therefore measuring every gesture in the wrong scale. Re-announcing costs 15 bytes
+    /// every couple of seconds and makes a receiver restart heal itself.
+    private func startHelloTimer() {
+        helloTimer?.invalidate()
+        helloTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.state == .connected else { return }
+                self.sendHello()
+            }
+        }
+    }
 
     private func sendHello() {
         let hello = Hello(
