@@ -114,9 +114,14 @@ struct ContentView: View {
                     }
                 }
 
-                HStack(spacing: 8) {
+                HStack(spacing: 14) {
                     Circle().fill(statusColor).frame(width: 7, height: 7)
                     Text(statusText).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Toggle("Вібрація", isOn: $session.hapticsEnabled)
+                        .toggleStyle(.switch)
+                        .font(.caption)
+                        .fixedSize()
                 }
 
                 HStack(spacing: 18) {

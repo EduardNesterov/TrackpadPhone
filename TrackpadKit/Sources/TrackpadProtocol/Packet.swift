@@ -9,17 +9,20 @@ import Foundation
 ///     contact     u8 id, u8 phase, i16 x, i16 y, u16 majorRadius     (8 bytes)
 ///     hello       + u32 sessionID, f32 widthMM, f32 heightMM, u8 maxContacts
 ///     echoReply   + u16 seq, u32 tSensorUs, u32 tServerUs
+///     feedback    + u8 kind, u8 intensity
 ///
 /// A 5-finger frame is 50 bytes, so frames never fragment.
 public enum Packet: Sendable, Equatable {
     case touchFrame(TouchFrame)
     case hello(Hello)
     case echoReply(EchoReply)
+    case feedback(Feedback)
 
     enum WireType: UInt8 {
         case touchFrame = 0x01
         case hello = 0x02
         case echoReply = 0x10
+        case feedback = 0x11
     }
 }
 
@@ -89,6 +92,11 @@ public extension Packet {
             w.u16(echo.seq)
             w.u32(echo.tSensorUs)
             w.u32(echo.tServerUs)
+
+        case .feedback(let feedback):
+            w.u8(WireType.feedback.rawValue)
+            w.u8(feedback.kind.rawValue)
+            w.u8(feedback.intensity)
         }
 
         return w.data
@@ -144,6 +152,13 @@ public extension Packet {
                 tSensorUs: try r.u32(),
                 tServerUs: try r.u32()
             ))
+
+        case .feedback:
+            let rawKind = try r.u8()
+            let intensity = try r.u8()
+            // An unknown kind is not worth dropping the packet over: something happened
+            // that deserves a buzz, and a plain click is the harmless reading.
+            return .feedback(Feedback(kind: FeedbackKind(rawValue: rawKind) ?? .click, intensity: intensity))
         }
     }
 }

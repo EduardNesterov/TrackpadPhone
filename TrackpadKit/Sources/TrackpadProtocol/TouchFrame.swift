@@ -92,6 +92,31 @@ public struct Hello: Sendable, Equatable {
     }
 }
 
+public enum FeedbackKind: UInt8, Sendable, Equatable, CaseIterable {
+    /// A click landed. Crisp and short.
+    case click = 0
+    /// A gesture was recognised — a swipe fired, a drag locked on. Duller, so it is not
+    /// mistaken for a click.
+    case gesture = 1
+}
+
+/// Mac → phone: play something the finger can feel.
+///
+/// The decision belongs on the Mac, which is the only side that knows a click happened —
+/// the phone stays the dumb sensor the architecture calls for. The cost is that the tap
+/// arrives one round trip after the finger moved, so this is only worth having while the
+/// link is quick; past roughly 50 ms it would feel detached rather than reassuring.
+public struct Feedback: Sendable, Equatable {
+    public var kind: FeedbackKind
+    /// 0...255, scaled to 0...1 on the phone.
+    public var intensity: UInt8
+
+    public init(kind: FeedbackKind, intensity: UInt8 = 200) {
+        self.kind = kind
+        self.intensity = intensity
+    }
+}
+
 /// Mac → phone, mirroring a frame's identity so the phone can measure round-trip time.
 public struct EchoReply: Sendable, Equatable {
     public var seq: UInt16

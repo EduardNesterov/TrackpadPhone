@@ -37,6 +37,18 @@ final class PhoneSession {
         didSet { UserDefaults.standard.set(host, forKey: Self.hostKey) }
     }
 
+    /// Persisted so the choice survives a relaunch; haptics are polarising enough to be
+    /// worth a switch rather than a decision made for the user.
+    var hapticsEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(hapticsEnabled, forKey: Self.hapticsKey)
+            haptics.isEnabled = hapticsEnabled
+        }
+    }
+
+    private let haptics = Haptics()
+
+    private static let hapticsKey = "trackpadphone.haptics"
     private static let hostKey = "trackpadphone.host"
     private static let defaultPort: UInt16 = 51888
 
@@ -61,6 +73,11 @@ final class PhoneSession {
 
     init() {
         host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
+        hapticsEnabled = UserDefaults.standard.object(forKey: Self.hapticsKey) as? Bool ?? true
+        haptics.isEnabled = hapticsEnabled
+        // Starting the engine up front matters: the first pattern on a cold engine is
+        // late by tens of milliseconds, which is exactly the click you most want to feel.
+        haptics.start()
     }
 
     private func nowMicroseconds() -> UInt32 {
@@ -206,7 +223,18 @@ final class PhoneSession {
     }
 
     private func handle(_ data: Data) {
-        guard case .echoReply(let echo) = try? Packet.decode(data) else { return }
+        switch try? Packet.decode(data) {
+        case .feedback(let feedback):
+            haptics.play(feedback)
+            return
+        case .echoReply(let echo):
+            recordRoundTrip(echo)
+        default:
+            return
+        }
+    }
+
+    private func recordRoundTrip(_ echo: EchoReply) {
         // Both timestamps are on this device's clock, which is why the phone owns the
         // measurement — no clock sync with the Mac is needed or attempted.
         let rtt = Double(nowMicroseconds() &- echo.tSensorUs) / 1000

@@ -24,6 +24,8 @@ public final class Receiver: @unchecked Sendable {
     private let port: NWEndpoint.Port
     private var listener: NWListener?
     private var connections: [NWConnection] = []
+    /// Where to send feedback. One phone at a time, so the most recent sender is it.
+    private var replyTo: NWConnection?
 
     public init(session: Session, port: UInt16, queue: DispatchQueue) {
         self.session = session
@@ -32,6 +34,11 @@ public final class Receiver: @unchecked Sendable {
     }
 
     public func start() throws {
+        session.onFeedback = { [weak self] feedback in
+            guard let self, let connection = self.replyTo else { return }
+            connection.send(content: Packet.feedback(feedback).encode(), completion: .idempotent)
+        }
+
         let params = NWParameters.udp
         params.allowLocalEndpointReuse = true
         // Enables AWDL, so this works over direct peer-to-peer Wi-Fi with no router.
@@ -92,6 +99,7 @@ public final class Receiver: @unchecked Sendable {
             session.handle(hello)
 
         case .touchFrame(let frame):
+            replyTo = connection
             let accepted = session.handle(frame, arrivedAtMs: Receiver.nowMs())
             if accepted {
                 // Bounce the frame's identity straight back. The phone owns the RTT
@@ -104,7 +112,7 @@ public final class Receiver: @unchecked Sendable {
                 connection.send(content: reply.encode(), completion: .idempotent)
             }
 
-        case .echoReply:
+        case .echoReply, .feedback:
             break  // Mac never receives these.
         }
     }

@@ -31,6 +31,11 @@ public final class Session {
     /// question when a gesture misbehaves is always "how many fingers did the Mac
     /// actually receive", and guessing at it wastes far more time than this costs.
     public var debug = false
+
+    /// Called when something happened that the finger should feel. The Mac is the only
+    /// side that knows a click landed, so the decision belongs here — the phone stays the
+    /// dumb sensor the architecture calls for.
+    public var onFeedback: ((Feedback) -> Void)?
     private var lastContactCount = -1
 
     public init(recognizer: GestureRecognizer, synthesizer: EventSynthesizer) {
@@ -89,8 +94,26 @@ public final class Session {
         for event in recognizer.process(frame) {
             if debug { print("\(Self.stamp())  → \(event)") }
             synthesizer.apply(event)
+            if let feedback = Self.feedback(for: event) {
+                onFeedback?(feedback)
+            }
         }
         return true
+    }
+
+    /// Zoom is deliberately absent: a pinch emits a step every few millimetres, and
+    /// buzzing on each one turns a smooth gesture into a rattle.
+    private static func feedback(for event: InputEvent) -> Feedback? {
+        switch event {
+        case .click:
+            return Feedback(kind: .click, intensity: 200)
+        case .dragBegan, .dragEnded:
+            return Feedback(kind: .click, intensity: 150)
+        case .shortcut:
+            return Feedback(kind: .gesture, intensity: 220)
+        case .move, .scroll, .zoom:
+            return nil
+        }
     }
 
     /// Wall-clock stamp on every debug line, so a log can be lined up against what the

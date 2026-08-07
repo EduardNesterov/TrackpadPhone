@@ -90,6 +90,29 @@ struct PacketCodecTests {
         #expect(decoded == echo)
     }
 
+    @Test("Feedback survives a round trip", arguments: FeedbackKind.allCases)
+    func feedbackRoundTrip(kind: FeedbackKind) throws {
+        let feedback = Feedback(kind: kind, intensity: 173)
+        guard case .feedback(let decoded) = try Packet.decode(Packet.feedback(feedback).encode()) else {
+            Issue.record("decoded to the wrong case")
+            return
+        }
+        #expect(decoded == feedback)
+        #expect(Packet.feedback(feedback).encode().count == 4, "small enough to send on every click")
+    }
+
+    /// A future kind must not silently drop the buzz on an older build.
+    @Test("An unknown feedback kind decodes as a click")
+    func unknownFeedbackKind() throws {
+        let bytes = Data([protocolVersion, 0x11, 99, 200])
+        guard case .feedback(let decoded) = try Packet.decode(bytes) else {
+            Issue.record("decoded to the wrong case")
+            return
+        }
+        #expect(decoded.kind == .click)
+        #expect(decoded.intensity == 200)
+    }
+
     /// A finger dragged past the edge keeps reporting, which is why coordinates are signed.
     @Test("Coordinates outside the surface stay signed and are preserved")
     func outOfBoundsCoordinates() throws {

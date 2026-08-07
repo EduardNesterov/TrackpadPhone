@@ -15,7 +15,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		AA00000000000000000000A9 /* TrackpadPhoneiOS */ = {
+		AA00000000000000000000A9 /* Apps/TrackpadPhoneiOS */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Apps/TrackpadPhoneiOS;
 			sourceTree = "<group>";
@@ -37,7 +37,7 @@
 		AA00000000000000000000A2 = {
 			isa = PBXGroup;
 			children = (
-				AA00000000000000000000A9 /* TrackpadPhoneiOS */,
+				AA00000000000000000000A9 /* Apps/TrackpadPhoneiOS */,
 				AA00000000000000000000A3 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -66,7 +66,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				AA00000000000000000000A9 /* TrackpadPhoneiOS */,
+				AA00000000000000000000A9 /* Apps/TrackpadPhoneiOS */,
 			);
 			name = TrackpadPhoneiOS;
 			packageProductDependencies = (
