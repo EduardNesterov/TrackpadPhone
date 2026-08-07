@@ -84,7 +84,7 @@ public struct GestureConfig: Sendable, Equatable {
     /// travel than that, so lifting and re-grabbing has to continue the same drag instead
     /// of dropping what it is carrying. Long enough to lift and replace a hand, short
     /// enough that a deliberate release does not feel sticky.
-    public var dragResumeWindow: Double = 0.35
+    public var dragResumeWindow: Double = 0.175
     /// Centroid travel before a swipe fires.
     public var swipeThresholdMM: Double = 12.0
 
