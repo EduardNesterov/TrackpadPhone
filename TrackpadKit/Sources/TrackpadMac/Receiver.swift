@@ -127,21 +127,31 @@ public final class Receiver: @unchecked Sendable {
 
     /// Gives the recogniser a clock of its own.
     ///
-    /// The phone sends only while it is being touched, so any deadline that must expire on
-    /// an empty surface — the drag's re-grab window is the one — has no frames to ride on.
-    /// 25 ms is a quarter of the shortest window and cheap enough to leave running.
+    /// The phone sends only while it is being touched, so anything that has to keep running
+    /// without fresh frames rides on this: the drag's re-grab window, which must expire on
+    /// an empty surface, and the edge push, which must glide while the fingers hold still.
+    ///
+    /// 120 Hz because the push turns into visible steps at anything slower, and the elapsed
+    /// time is *measured* rather than assumed — a timer that fires late still moves the
+    /// pointer by what the nominal interval said, and that irregularity is exactly what a
+    /// glide shows up as stutter.
     private func startTickTimer() {
-        let interval = 0.025
+        let interval = 1.0 / 120
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(5))
+        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(2))
         timer.setEventHandler { [weak self] in
-            self?.session.tick(elapsed: interval)
+            guard let self else { return }
+            let now = Receiver.nowMs()
+            let elapsed = min((now - (self.lastTickMs ?? now - interval * 1000)) / 1000, 0.1)
+            self.lastTickMs = now
+            self.session.tick(elapsed: elapsed)
         }
         timer.resume()
         tickTimer = timer
     }
 
     private var tickTimer: DispatchSourceTimer?
+    private var lastTickMs: Double?
 
     private func startStatsTimer() {
         let timer = DispatchSource.makeTimerSource(queue: queue)

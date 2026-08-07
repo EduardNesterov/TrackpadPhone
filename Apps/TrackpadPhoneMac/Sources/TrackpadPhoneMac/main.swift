@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var config = GestureConfig()
         config.scrollGain = settings.scrollGain
         config.threeFingerDrag = settings.threeFingerDrag
+        config.dragEdgePushMaxMMPerS = settings.edgePushSpeed
 
         synthesizer = EventSynthesizer(queue: queue, config: config)
         synthesizer.acceleration.sensitivity = settings.sensitivity
@@ -135,6 +136,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         drag.state = settings.threeFingerDrag ? .on : .off
         menu.addItem(drag)
         menu.addItem(disabled(settings.threeFingerDrag ? "   свайпи — чотирма" : "   свайпи — трьома"))
+
+        if settings.threeFingerDrag {
+            menu.addItem(slider(
+                "Автопрокрутка біля краю", value: settings.edgePushSpeed,
+                range: 0 ... 80, action: #selector(edgePushSpeedChanged)
+            ))
+            menu.addItem(disabled(settings.edgePushSpeed < 1
+                ? "   вимкнено"
+                : "   тягнеш до краю — їде далі само"))
+        }
 
         menu.addItem(.separator())
         // The phone cannot start this app: with nothing running there is nothing to hear
@@ -237,6 +248,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settings.save()
         refreshMenu()
+    }
+
+    /// How fast a drag keeps travelling once the fingers reach the border. Taste, and it
+    /// depends on the page, so it gets a slider rather than a constant. Zero is off, and
+    /// the label under it says so.
+    @objc private func edgePushSpeedChanged(_ sender: NSSlider) {
+        let wasOff = settings.edgePushSpeed < 1
+        settings.edgePushSpeed = sender.doubleValue
+        queue.async { [recognizer, settings] in
+            recognizer?.config.dragEdgePushMaxMMPerS = settings.edgePushSpeed
+        }
+        settings.save()
+        // Only when it crosses the line: rebuilding the menu on every drag of the slider
+        // would tear it out from under the cursor.
+        if wasOff != (settings.edgePushSpeed < 1) { refreshMenu() }
     }
 
     /// Shown under the login-item toggle when the last attempt did not take.
@@ -399,6 +425,7 @@ struct Settings {
     var scrollGain: Double = 16.0
     var invertScroll = false
     var threeFingerDrag = true
+    var edgePushSpeed: Double = 30
     var hasPromptedForAccessibility = false
 
     static func load() -> Settings {
@@ -416,6 +443,9 @@ struct Settings {
         if defaults.object(forKey: "threeFingerDrag") != nil {
             settings.threeFingerDrag = defaults.bool(forKey: "threeFingerDrag")
         }
+        if defaults.object(forKey: "edgePushSpeed") != nil {
+            settings.edgePushSpeed = defaults.double(forKey: "edgePushSpeed")
+        }
         settings.hasPromptedForAccessibility = defaults.bool(forKey: "hasPromptedForAccessibility")
         return settings
     }
@@ -426,6 +456,7 @@ struct Settings {
         defaults.set(scrollGain, forKey: "scrollGain")
         defaults.set(invertScroll, forKey: "invertScroll")
         defaults.set(threeFingerDrag, forKey: "threeFingerDrag")
+        defaults.set(edgePushSpeed, forKey: "edgePushSpeed")
         defaults.set(hasPromptedForAccessibility, forKey: "hasPromptedForAccessibility")
     }
 }

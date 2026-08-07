@@ -582,12 +582,15 @@ public final class GestureRecognizer {
     /// is the part nothing outside it could get right.
     private func edgePush(elapsed: Double) -> [InputEvent] {
         guard elapsed > 0, let rate = edgePushRate() else { return [] }
-        let delta = Vec(x: 0, y: rate * elapsed)
-        lastCentroid = lastCentroid + delta
-        return [.move(
-            dxMM: 0, dyMM: delta.y,
-            speedMMPerS: max(abs(rate), config.dragSpeedFloorMMPerS)
-        )]
+        // `lastCentroid` is deliberately left alone: it is where the *fingers* are, and the
+        // next frame measures against it. Advancing it by the push made every frame report
+        // the push back as movement in the opposite direction — the pointer shook in place
+        // and the page scrolled in lurches.
+        //
+        // Read at the curve's unity point rather than at the push rate, so screen travel
+        // stays proportional to the ramp. Feeding the rate to a curve built for human hands
+        // squared it: half-way into the zone moved a third as fast as the edge, not half.
+        return [.move(dxMM: 0, dyMM: rate * elapsed, speedMMPerS: config.dragSpeedFloorMMPerS)]
     }
 
     /// Millimetres per second, positive downwards; nil when there is nothing to push.

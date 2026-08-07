@@ -647,7 +647,51 @@ struct ThreeFingerDragTests {
 
         for _ in 0 ..< 20 { events += recognizer.tick(elapsed: 0.025) }
         let afterPush = events.totalMoveMM.y
-        #expect(afterPush > carried + 10, "half a second at the border should travel further")
+
+        // Half a second, four millimetres from the border of a 150-mm surface, so six
+        // tenths of the way into a ten-millimetre zone. Expressed against the configured
+        // rate rather than as a number, so tuning the default does not fail the test.
+        let expected = GestureConfig().dragEdgePushMaxMMPerS * 0.6 * 0.5
+        #expect(afterPush - carried > expected * 0.8)
+        #expect(afterPush - carried < expected * 1.2)
+    }
+
+    /// Ticks and frames arrive interleaved, and only that ordering shows the mistake: the
+    /// push advanced the reference the *fingers* are measured against, so the very next
+    /// frame reported the push back as movement the other way. The pointer shook in place
+    /// and the page went in lurches, while a test that ran its ticks in a block after the
+    /// frames — as the first one here did — saw a perfectly smooth glide.
+    @Test("Pushing does not fight the frames arriving alongside it")
+    func edgePushSurvivesInterleavedFrames() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 20, yMM: 120)
+        stream.place(1, xMM: 35, yMM: 120)
+        stream.place(2, xMM: 50, yMM: 120)
+        stream.hold(0.02)
+        stream.moveAll(dxMM: 0, dyMM: 26, over: 0.15)
+
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        events.removeAll()
+
+        // The hand now rests against the border. Frames keep coming because the fingers are
+        // still down, and the tick runs between them.
+        var resting = TouchStreamBuilder()
+        resting.place(0, xMM: 20, yMM: 146)
+        resting.place(1, xMM: 35, yMM: 146)
+        resting.place(2, xMM: 50, yMM: 146)
+        resting.hold(0.25)
+        for frame in resting.frames {
+            events += recognizer.process(frame)
+            events += recognizer.tick(elapsed: 1.0 / 120)
+        }
+
+        let steps = events.compactMap { event -> Double? in
+            if case .move(_, let dy, _) = event { dy } else { nil }
+        }
+        #expect(!steps.isEmpty)
+        #expect(steps.allSatisfy { $0 >= -0.01 }, "no step may go back up the surface")
+        #expect(steps.reduce(0, +) > 3, "and the glide must actually travel")
     }
 
     @Test("Nothing is pushed while the fingers are in the middle of the surface")

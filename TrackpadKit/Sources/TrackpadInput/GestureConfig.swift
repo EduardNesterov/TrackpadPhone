@@ -81,8 +81,10 @@ public struct GestureConfig: Sendable, Equatable {
     /// while doing so, which nothing outside the application could do as well.
     public var dragEdgePushMarginMM: Double = 10
     /// Travel per second at the very border, tapering to nothing at the edge of the zone,
-    /// so the push arrives gradually instead of snatching the pointer.
-    public var dragEdgePushMaxMMPerS: Double = 60
+    /// so the push arrives gradually instead of snatching the pointer. Zero turns it off,
+    /// and the menu has a slider for it — how fast a page should run past is taste, and
+    /// depends on the page.
+    public var dragEdgePushMaxMMPerS: Double = 30
     /// Slow dragging is read at no less than this speed.
     ///
     /// The acceleration curve damps to 0.4× down at the bottom, which is what makes a pixel
