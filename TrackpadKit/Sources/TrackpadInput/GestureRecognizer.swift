@@ -94,6 +94,15 @@ public final class GestureRecognizer {
     private var pointerVelocity = PointerVelocity()
     private var speedSmoother = SpeedSmoother()
 
+    /// Separation over time, so a pinch that is still opening when the fingers leave can
+    /// carry on. The same tracker the scroll flick uses, fed a one-dimensional signal —
+    /// its whole job is telling a throw from a hand that had already stopped, and that
+    /// question is identical here.
+    private var pinchTracker = VelocityTracker()
+    private var zoomMomentum = MomentumEngine()
+    /// Separation the coast has covered but not yet turned into whole zoom steps.
+    private var zoomMomentumTravel: Double = 0
+
     private var lastClickTime: Double = -.infinity
     private var lastClickPosition = Vec()
     private var lastClickCount = 0
@@ -121,6 +130,8 @@ public final class GestureRecognizer {
         velocityTracker.reset()
         pointerVelocity.reset()
         speedSmoother.reset()
+        pinchTracker.reset()
+        stopZoomMomentum()
         lastClickCount = 0
         dragArmedUntil = -.infinity
         dragContacts = 0
@@ -150,16 +161,20 @@ public final class GestureRecognizer {
         let unaccounted = max(0, elapsed - framedSinceTick)
         framedSinceTick = 0
 
+        // The zoom coast runs on an empty surface, whatever the phase says.
+        var events = coastZoom(elapsed: elapsed)
+
         // The edge push runs on the *whole* interval, not the leftover: the fingers are on
         // the surface and sending frames the entire time, so there is no leftover, and its
         // whole point is to keep moving while they do not.
-        if phase == .threeFingerDragging { return edgePush(elapsed: elapsed) }
-        guard phase == .threeFingerHeld else { return [] }
+        if phase == .threeFingerDragging { return events + edgePush(elapsed: elapsed) }
+        guard phase == .threeFingerHeld else { return events }
 
         now += unaccounted
-        guard now >= dragResumeDeadline else { return [] }
+        guard now >= dragResumeDeadline else { return events }
         phase = tracked.isEmpty ? .idle : .ignoring
-        return [.dragEnded]
+        events.append(.dragEnded)
+        return events
     }
 
     /// True while the drag owns the surface, whether or not fingers are on it.
@@ -182,6 +197,10 @@ public final class GestureRecognizer {
         }
 
         updateTracked(positions)
+
+        // A finger touching down catches the zoom where it is, the way it catches a
+        // coasting scroll.
+        if !positions.isEmpty { stopZoomMomentum() }
 
         // A running three-finger drag owns every contact count, including zero. The button
         // is down, so handing one or two fingers left over from an untidy lift back to the
@@ -317,6 +336,8 @@ public final class GestureRecognizer {
             return [.dragEnded]
         case .scrolling:
             return closeScroll(fingersLeaving: true)
+        case .pinching:
+            return startZoomMomentum()
         default:
             return []
         }
@@ -390,9 +411,11 @@ public final class GestureRecognizer {
             // is where a two-finger gesture actually ends, because two fingers hardly ever
             // leave in the same frame. Deferring the decision to full lift-off means the
             // right click is simply never emitted, and a scroll loses its momentum.
-            let closing = phase == .twoFinger
-                ? tapEvents(button: .right)
-                : closeScroll(fingersLeaving: true)
+            let closing: [InputEvent] = switch phase {
+            case .twoFinger: tapEvents(button: .right)
+            case .pinching: startZoomMomentum()
+            default: closeScroll(fingersLeaving: true)
+            }
             phase = .ignoring
             return closing
         }
@@ -412,9 +435,11 @@ public final class GestureRecognizer {
             startSeparation = separation
             lastZoomStep = 0
             velocityTracker.reset()
+            pinchTracker.reset()
             return []
 
         case .twoFinger:
+            pinchTracker.add(Vec(x: separation, y: 0), at: now)
             let separationDelta = separation - startSeparation
             let spread = abs(separationDelta)
             let drift = (current - gestureAnchor).length
@@ -449,11 +474,44 @@ public final class GestureRecognizer {
             return [.scroll(dxMM: delta.x, dyMM: delta.y, phase: .changed)]
 
         case .pinching:
+            pinchTracker.add(Vec(x: separation, y: 0), at: now)
             return zoomEvents(separationDelta: separation - startSeparation)
 
         default:
             return []
         }
+    }
+
+    /// Lets a pinch carry on after the fingers leave.
+    ///
+    /// Without it a zoom stops dead at lift-off, the same tell that a scroll without
+    /// inertia gives. Whether to coast at all is the flick question again, so it is the
+    /// same tracker and the same answer: fingers that had already stopped were placing the
+    /// zoom exactly where it is, and carrying past that would be the surface arguing with
+    /// the hand.
+    private func startZoomMomentum() -> [InputEvent] {
+        zoomMomentum.decayPerSecond = config.zoomMomentumDecayPerSecond
+        zoomMomentum.stopSpeedMMPerS = config.zoomMomentumMinSpeedMMPerS
+        guard let exit = pinchTracker.velocity(at: now),
+              abs(exit.x) >= config.zoomMomentumMinSpeedMMPerS else { return [] }
+        zoomMomentum.start(velocityX: exit.x, velocityY: 0)
+        zoomMomentumTravel = 0
+        return []
+    }
+
+    /// One tick of the zoom coast, in whole notches.
+    private func coastZoom(elapsed: Double) -> [InputEvent] {
+        guard zoomMomentum.isActive, let step = zoomMomentum.tick(dt: elapsed) else { return [] }
+        zoomMomentumTravel += step.dxMM
+        let notches = Int((zoomMomentumTravel / config.pinchStepMM).rounded(.towardZero))
+        guard notches != 0 else { return [] }
+        zoomMomentumTravel -= Double(notches) * config.pinchStepMM
+        return [.zoom(steps: notches)]
+    }
+
+    private func stopZoomMomentum() {
+        zoomMomentum.stop()
+        zoomMomentumTravel = 0
     }
 
     private func zoomEvents(separationDelta: Double) -> [InputEvent] {

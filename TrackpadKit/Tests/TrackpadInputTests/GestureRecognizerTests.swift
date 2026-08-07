@@ -343,6 +343,75 @@ struct GestureTests {
         #expect(steps < 0)
     }
 
+    /// A zoom that stops dead at lift-off is the same tell as a scroll without inertia.
+    @Test("A quick pinch keeps zooming after the fingers leave")
+    func pinchCoasts() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 25, yMM: 75)
+        stream.place(1, xMM: 45, yMM: 75)
+        stream.hold(0.02)
+        stream.pinch(byMM: 30, over: 0.1)   // 300 mm/s of separation
+        stream.lift(1)
+        stream.lift(0)
+
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        let duringGesture = events.zooms.count
+
+        for _ in 0 ..< 60 { events += recognizer.tick(elapsed: 1.0 / 120) }
+        #expect(events.zooms.count > duringGesture, "the coast must add steps of its own")
+
+        // And it comes to a stop rather than running for ever.
+        let afterCoast = events.zooms.count
+        for _ in 0 ..< 240 { events += recognizer.tick(elapsed: 1.0 / 120) }
+        #expect(events.zooms.count == afterCoast)
+    }
+
+    /// The flick question again: fingers that had come to rest were placing the zoom
+    /// exactly where it is, and carrying past that argues with the hand.
+    @Test("A pinch that comes to a stop does not coast")
+    func settledPinchDoesNotCoast() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 25, yMM: 75)
+        stream.place(1, xMM: 45, yMM: 75)
+        stream.hold(0.02)
+        stream.pinch(byMM: 30, over: 0.1)
+        stream.hold(0.1)                     // arrived, and held
+        stream.lift(1)
+        stream.lift(0)
+
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        let duringGesture = events.zooms.count
+
+        for _ in 0 ..< 60 { events += recognizer.tick(elapsed: 1.0 / 120) }
+        #expect(events.zooms.count == duringGesture)
+    }
+
+    @Test("A finger landing catches the coasting zoom")
+    func touchStopsTheZoomCoast() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 25, yMM: 75)
+        stream.place(1, xMM: 45, yMM: 75)
+        stream.hold(0.02)
+        stream.pinch(byMM: 30, over: 0.1)
+        stream.lift(1)
+        stream.lift(0)
+
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        for _ in 0 ..< 10 { events += recognizer.tick(elapsed: 1.0 / 120) }
+
+        var caught = TouchStreamBuilder()
+        caught.place(0, xMM: 35, yMM: 75)
+        caught.hold(0.02)
+        for frame in caught.frames { events += recognizer.process(frame) }
+
+        let atCatch = events.zooms.count
+        for _ in 0 ..< 60 { events += recognizer.tick(elapsed: 1.0 / 120) }
+        #expect(events.zooms.count == atCatch)
+    }
+
     @Test("Four fingers up open Mission Control")
     func swipeUp() {
         var stream = TouchStreamBuilder()

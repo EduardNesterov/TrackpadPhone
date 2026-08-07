@@ -111,6 +111,9 @@ public final class Session {
     /// waiting for the phone here means waiting forever.
     public func tick(elapsed: Double) {
         emit(recognizer.tick(elapsed: elapsed))
+        // And the synthesiser's own duty on the same clock: letting buffered scroll out at
+        // an even rate, so network clumping does not reach the screen.
+        synthesizer.tick(elapsed: elapsed)
     }
 
     private func emit(_ events: [InputEvent]) {

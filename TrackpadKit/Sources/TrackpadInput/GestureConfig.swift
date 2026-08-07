@@ -54,6 +54,15 @@ public struct GestureConfig: Sendable, Equatable {
     public var pinchSlopMM: Double = 4.0
     /// Further separation change per additional zoom step.
     public var pinchStepMM: Double = 8.0
+    /// Below this closing or opening speed at lift-off, a pinch just stops.
+    ///
+    /// The same distinction the scroll flick makes: fingers that had already come to rest
+    /// were placing the zoom exactly where it is, and coasting past it would be the surface
+    /// disagreeing with the hand.
+    public var zoomMomentumMinSpeedMMPerS: Double = 45
+    /// Fraction of the pinch speed left after a second of coasting. Shorter than the
+    /// scroll's, because overshooting a zoom is harder to correct than overshooting a page.
+    public var zoomMomentumDecayPerSecond: Double = 0.012
 
     // MARK: Three fingers
 
