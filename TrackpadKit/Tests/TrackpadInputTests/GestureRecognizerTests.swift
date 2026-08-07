@@ -409,6 +409,39 @@ struct GestureTests {
         #expect(events.zooms.count == afterCoast)
     }
 
+    /// The one that mattered in the hand. Fingers never leave the glass in the same frame,
+    /// and the one left behind keeps reporting itself for as long as it takes to lift — 68
+    /// milliseconds in the log that caught this. Every one of those frames counted as a new
+    /// touch catching the coast, so the zoom stopped within a frame or two of starting. It
+    /// survived only when the leftover finger was still enough for iOS to send nothing at
+    /// all, which is why the same flick carried on sometimes and stopped dead the rest of
+    /// the time.
+    ///
+    /// The stream has to be interleaved with ticks, because that is the only ordering where
+    /// the coast is running while the leaving frames arrive.
+    @Test("A finger still leaving does not stop the coast it just started")
+    func aLingeringFingerDoesNotKillTheZoomCoast() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 25, yMM: 75)
+        stream.place(1, xMM: 45, yMM: 75)
+        stream.hold(0.02)
+        stream.pinch(byMM: 30, over: 0.1)
+        stream.lift(1)
+        stream.hold(0.07)      // and the other finger takes its time getting off
+        stream.liftAll()
+
+        let recognizer = GestureRecognizer()
+        var events: [InputEvent] = []
+        for frame in stream.frames {
+            events += recognizer.process(frame)
+            events += recognizer.tick(elapsed: 1.0 / 120)
+        }
+        let whenTheHandLeft = events.zooms.count
+
+        for _ in 0 ..< 60 { events += recognizer.tick(elapsed: 1.0 / 120) }
+        #expect(events.zooms.count > whenTheHandLeft, "the coast outlives the hand leaving")
+    }
+
     /// The coast has to survive an ordinary pinch, not only a throw — and most real pinches
     /// are ordinary, because there are only about forty millimetres of spread in a hand.
     /// Judging both "is this worth coasting" and "has the coast finished" by one number made

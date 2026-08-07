@@ -224,9 +224,22 @@ public final class GestureRecognizer {
 
         updateTracked(positions)
 
-        // A finger touching down catches the zoom where it is, the way it catches a
-        // coasting scroll.
-        if !positions.isEmpty { stopZoomMomentum() }
+        // A finger touching down catches the zoom where it is, the way it catches a coasting
+        // scroll — but the fingers that *launched* the coast are still on their way off, and
+        // they are not a catch.
+        //
+        // Two fingers never leave the glass in the same frame: the pinch ends at 2 → 1, and
+        // the one left behind goes on reporting itself for as long as it takes to lift. Every
+        // one of those frames was read as a new touch, so the coast died a few milliseconds
+        // after it began. It survived only when the leftover finger happened to be still
+        // enough that iOS sent nothing at all — which is exactly what "the zoom carries on
+        // sometimes" felt like, and why it looked like inertia was missing rather than
+        // cancelled. Measured in one log: 1.0 s of coasting from a still finger against a
+        // single step from one that lingered for 68 ms.
+        //
+        // `.ignoring` is precisely the state meaning "this hand is leaving", so it is the
+        // whole of the distinction.
+        if !positions.isEmpty, phase != .ignoring { stopZoomMomentum() }
 
         // A running three-finger drag owns every contact count, including zero. The button
         // is down, so handing one or two fingers left over from an untidy lift back to the
