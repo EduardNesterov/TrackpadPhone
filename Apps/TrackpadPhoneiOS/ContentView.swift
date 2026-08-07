@@ -188,11 +188,17 @@ struct ContentView: View {
                         Text("звук").font(.caption2).foregroundStyle(.secondary)
                         metric("джитер p95", session.audio.arrivalJitterP95Ms)
                         metric("вихід", session.audio.outputLatencyMs)
-                        metric("у черзі", session.audio.queuedMs)
+                        metric("буфер", session.audio.bufferedMs)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("втрачено").font(.caption2).foregroundStyle(.secondary)
-                            Text("\(session.audio.packetsLost)")
+                            Text("втрати/провали").font(.caption2).foregroundStyle(.secondary)
+                            Text("\(session.audio.packetsLost)/\(session.audio.underruns)")
                                 .font(.system(.callout, design: .monospaced))
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("запас \(Int(session.audio.targetLatencyMs)) мс")
+                                .font(.caption2).foregroundStyle(.secondary)
+                            Slider(value: $session.audio.targetLatencyMs, in: 15 ... 150)
+                                .frame(width: 120)
                         }
                     }
                 }

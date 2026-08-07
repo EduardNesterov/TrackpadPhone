@@ -56,7 +56,9 @@ final class PhoneSession {
     }
 
     private let haptics = Haptics()
-    let audio = AudioPlayer()
+    /// `var` so SwiftUI can bind the latency slider straight to it; the instance is
+    /// never replaced.
+    var audio = AudioPlayer()
 
     private static let hapticsKey = "trackpadphone.haptics"
     private static let hapticStrengthKey = "trackpadphone.hapticStrength"
