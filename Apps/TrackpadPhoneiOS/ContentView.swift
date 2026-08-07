@@ -12,6 +12,10 @@ struct ContentView: View {
     private let trackpadStripHeight: Double = 92
     @FocusState private var hostFieldFocused: Bool
 
+    /// The close button only acts on a second tap; this is the moment in between.
+    @State private var closeArmed = false
+    @State private var disarmTask: Task<Void, Never>?
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.black.ignoresSafeArea()
@@ -21,6 +25,7 @@ struct ContentView: View {
             // It alone keeps the safe area — in landscape the physical top-left corner is
             // behind the Dynamic Island.
             revealButton
+            closeButton
             if showKeyboard { keyboard }
             if showSettings { settingsPanel }
         }
@@ -102,6 +107,46 @@ struct ContentView: View {
         .opacity(showSettings ? 0 : 0.55)
         .padding(.leading, 14)
         .padding(.top, 10)
+    }
+
+    /// Leaving the app on purpose.
+    ///
+    /// Swiping up is deliberately made awkward — `defersSystemGestures` costs a swipe, and
+    /// that is as far as iOS lets an app go; the home gesture cannot be taken away. So
+    /// there has to be a way out that is meant, and this is it: the first tap only arms the
+    /// button, the second closes. One stray touch in the corner does nothing, which matters
+    /// because that corner is inside the trackpad.
+    private var closeButton: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                Button {
+                    if closeArmed {
+                        session.disconnect()
+                        exit(0)
+                    } else {
+                        closeArmed = true
+                        disarmTask?.cancel()
+                        disarmTask = Task {
+                            try? await Task.sleep(for: .seconds(3))
+                            if !Task.isCancelled { closeArmed = false }
+                        }
+                    }
+                } label: {
+                    Image(systemName: closeArmed ? "power.circle.fill" : "xmark")
+                        .font(.system(size: closeArmed ? 21 : 14, weight: .semibold))
+                        .foregroundStyle(closeArmed ? Color.red : Color.white)
+                        .frame(width: 40, height: 40)
+                        .background(Color(white: closeArmed ? 0.22 : 0.14), in: Circle())
+                }
+                .opacity(showSettings ? 0 : (closeArmed ? 1 : 0.35))
+                .animation(.easeOut(duration: 0.15), value: closeArmed)
+                .allowsHitTesting(!showSettings)
+                .padding(.trailing, 12)
+                .padding(.bottom, 6)
+            }
+        }
     }
 
     /// Deliberately *not* ignoring the horizontal safe area: in landscape the Dynamic
