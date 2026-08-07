@@ -64,9 +64,14 @@ public final class EventSynthesizer {
             scroll(dxMM: dx, dyMM: dy, phase: phase)
 
         case .zoom(let steps):
+            cancelMomentum()
             zoom(steps: steps)
 
         case .shortcut(let shortcut):
+            // Stop any coasting scroll first. While the system believes a scroll gesture
+            // is still running it can swallow a symbolic hotkey outright, and reaching a
+            // three-finger swipe by adding a finger to a scroll is the normal path here.
+            cancelMomentum()
             press(shortcut)
         }
     }

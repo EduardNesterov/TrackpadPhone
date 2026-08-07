@@ -83,14 +83,24 @@ public final class Session {
 
         if debug, frame.contacts.count != lastContactCount {
             lastContactCount = frame.contacts.count
-            print("  contacts: \(frame.contacts.count)  ids \(frame.contacts.map(\.id))")
+            print("\(Self.stamp())  contacts: \(frame.contacts.count)  ids \(frame.contacts.map(\.id))")
         }
 
         for event in recognizer.process(frame) {
-            if debug { print("  → \(event)") }
+            if debug { print("\(Self.stamp())  → \(event)") }
             synthesizer.apply(event)
         }
         return true
+    }
+
+    /// Wall-clock stamp on every debug line, so a log can be lined up against what the
+    /// user saw happen on screen.
+    private static func stamp() -> String {
+        let now = Date()
+        let seconds = now.timeIntervalSince1970
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter.string(from: now) + String(format: ".%03d", Int(seconds.truncatingRemainder(dividingBy: 1) * 1000))
     }
 
     public func drainStats() -> Stats {
