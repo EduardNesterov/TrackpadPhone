@@ -116,6 +116,34 @@ public final class GestureRecognizer {
         dragArmedUntil = -.infinity
         dragContacts = 0
         dragResumeDeadline = -.infinity
+        framedSinceTick = 0
+    }
+
+    /// Frame time already counted since the last tick, so the two clocks do not both pay
+    /// for the same milliseconds.
+    private var framedSinceTick: Double = 0
+
+    /// Lets time pass while the phone is silent. Call it steadily; `elapsed` is real seconds.
+    ///
+    /// Everything else here is driven by frames, deliberately — the phone's own clock cannot
+    /// be stretched by the network. The drag's re-grab window is the exception, because it
+    /// has to expire while the surface is *empty*, and an empty surface is exactly when the
+    /// phone stops sending. A frame-driven deadline there is one that may never arrive, and
+    /// it never did: the drag stayed picked up, swallowing every touch after it, until the
+    /// receiver's stall watchdog let go of the button a second and a half later. Shortening
+    /// the window changed nothing, because this deadline was never reached at all.
+    ///
+    /// Only the time frames did not already account for is added, so a hand still leaving
+    /// the surface — which does send frames — cannot make the window expire twice as fast.
+    public func tick(elapsed: Double) -> [InputEvent] {
+        let unaccounted = max(0, elapsed - framedSinceTick)
+        framedSinceTick = 0
+        guard phase == .threeFingerHeld else { return [] }
+
+        now += unaccounted
+        guard now >= dragResumeDeadline else { return [] }
+        phase = tracked.isEmpty ? .idle : .ignoring
+        return [.dragEnded]
     }
 
     /// True while the drag owns the surface, whether or not fingers are on it.
@@ -220,6 +248,7 @@ public final class GestureRecognizer {
             // A gap this large means the finger rested; do not let it drive velocity.
             if lastDelta > 1 { lastDelta = 0 }
             now += lastDelta
+            framedSinceTick += lastDelta
         } else {
             lastDelta = 0
         }

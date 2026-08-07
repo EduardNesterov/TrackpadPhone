@@ -100,14 +100,27 @@ public final class Session {
             print("\(Self.stamp())  contacts: \(frame.contacts.count)  ids \(frame.contacts.map(\.id))")
         }
 
-        for event in recognizer.process(frame) {
+        emit(recognizer.process(frame))
+        return true
+    }
+
+    /// Lets time pass for the recogniser while the phone is silent.
+    ///
+    /// The re-grab window of a three-finger drag has to expire on an empty surface, which
+    /// is precisely when no frames come. Driven from the receiver's own clock, because
+    /// waiting for the phone here means waiting forever.
+    public func tick(elapsed: Double) {
+        emit(recognizer.tick(elapsed: elapsed))
+    }
+
+    private func emit(_ events: [InputEvent]) {
+        for event in events {
             if debug { print("\(Self.stamp())  → \(event)") }
             synthesizer.apply(event)
             if let feedback = Self.feedback(for: event) {
                 onFeedback?(feedback)
             }
         }
-        return true
     }
 
     /// Ends a drag that the phone walked away from.

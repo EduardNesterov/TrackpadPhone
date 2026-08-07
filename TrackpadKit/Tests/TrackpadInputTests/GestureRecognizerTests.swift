@@ -527,6 +527,43 @@ struct ThreeFingerDragTests {
         #expect(abs(events.totalMoveMM.y + 60) < 1.0)
     }
 
+    /// The phone sends only while it is being touched. So the moment the last finger leaves
+    /// — exactly when the re-grab window opens — the frames stop, and a deadline waiting on
+    /// them never arrives. The drag stayed picked up and swallowed every touch after it
+    /// until the receiver's stall watchdog let go, a second and a half later. Shortening the
+    /// window did nothing, because this deadline was never reached at all.
+    @Test("The drag ends on time even when the phone goes silent at lift-off")
+    func dragEndsWithoutIdleFrames() {
+        var stream = dragStream(dxMM: 0, dyMM: -30)
+        stream.liftAll()
+
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        #expect(!events.contains(.dragEnded), "the window is still open at this point")
+
+        // Nothing arrives from here on. Time still has to pass.
+        for _ in 0 ..< 20 { events += recognizer.tick(elapsed: 0.02) }
+        #expect(events.filter { $0 == .dragEnded }.count == 1)
+    }
+
+    /// A hand still coming off the surface does send frames, and those milliseconds must
+    /// not be paid for twice — that would expire the window at up to double speed.
+    @Test("Ticks do not double-count time the frames already covered")
+    func tickDoesNotDoubleCountFrameTime() {
+        var stream = dragStream(dxMM: 0, dyMM: -30)
+        stream.lift(2)
+        stream.hold(0.1)
+
+        let recognizer = GestureRecognizer()
+        var events = recognizer.run(stream)
+        // The frames above already carried 0.1 s, more than half the window. One tick
+        // covering the same span must not finish it off.
+        events += recognizer.tick(elapsed: 0.1)
+        #expect(!events.contains(.dragEnded))
+        events += recognizer.tick(elapsed: 0.1)
+        #expect(events.contains(.dragEnded))
+    }
+
     @Test("Landing again after the window is a new gesture, not the old drag")
     func lateReGrabDoesNotContinue() {
         var stream = dragStream(dxMM: 0, dyMM: -30)

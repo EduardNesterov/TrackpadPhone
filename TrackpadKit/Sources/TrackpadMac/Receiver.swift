@@ -71,6 +71,7 @@ public final class Receiver: @unchecked Sendable {
         listener.start(queue: queue)
         self.listener = listener
         startStatsTimer()
+        startTickTimer()
     }
 
     private func receive(on connection: NWConnection) {
@@ -123,6 +124,24 @@ public final class Receiver: @unchecked Sendable {
     private static func nowMs() -> Double {
         Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000
     }
+
+    /// Gives the recogniser a clock of its own.
+    ///
+    /// The phone sends only while it is being touched, so any deadline that must expire on
+    /// an empty surface — the drag's re-grab window is the one — has no frames to ride on.
+    /// 25 ms is a quarter of the shortest window and cheap enough to leave running.
+    private func startTickTimer() {
+        let interval = 0.025
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(5))
+        timer.setEventHandler { [weak self] in
+            self?.session.tick(elapsed: interval)
+        }
+        timer.resume()
+        tickTimer = timer
+    }
+
+    private var tickTimer: DispatchSourceTimer?
 
     private func startStatsTimer() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
