@@ -197,7 +197,7 @@ struct ContentView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("запас \(Int(session.audio.targetLatencyMs)) мс")
                                 .font(.caption2).foregroundStyle(.secondary)
-                            Slider(value: $session.audio.targetLatencyMs, in: 15 ... 150)
+                            Slider(value: $session.audio.targetLatencyMs, in: 15 ... 400)
                                 .frame(width: 120)
                         }
                     }

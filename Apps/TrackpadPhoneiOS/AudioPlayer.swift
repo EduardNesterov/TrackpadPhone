@@ -38,7 +38,8 @@ final class AudioPlayer {
 
     private let engine = AVAudioEngine()
     private var sourceNode: AVAudioSourceNode?
-    private let ring = AudioRingBuffer(capacity: 48000 * 2)   // one second of stereo
+    /// Two seconds of stereo, so even the largest head start has room to sit in.
+    private let ring = AudioRingBuffer(capacity: 48000 * 2 * 2)
     private let sampleRate: Double = 48000
 
     private var lastSeq: UInt16?
@@ -141,6 +142,16 @@ final class AudioPlayer {
             // carrying the old buffer across would only play stale audio.
             if missing > 0, missing < 100 {
                 packetsLost += missing
+                // Fill the hole with silence rather than simply skipping it.
+                //
+                // This is what was causing dropouts at *any* buffer size: a lost packet
+                // that is never replaced does not make a gap in the sound, it makes the
+                // stream ten milliseconds shorter. At one percent loss the head start
+                // shrinks by ten milliseconds every second, so a 150 ms buffer empties in
+                // under three minutes and underruns — and then does it again, for ever.
+                // Concealing keeps the timeline honest; the buffer stays where it was put.
+                let silence = [Float](repeating: 0, count: missing * chunk.frameCount * 2)
+                ring.write(silence)
             } else if missing != 0 {
                 ring.reset()
             }
@@ -177,9 +188,15 @@ final class AudioPlayer {
         let filled = ring.filledSamples
         bufferedMs = Double(filled) / 2 / sampleRate * 1000
 
-        // Half again over target is drift rather than a burst.
+        // Half again over target is drift rather than a burst — but trim a sliver at a
+        // time, not the whole excess. Dropping the difference in one go discards up to
+        // half the head start, which at a 150 ms buffer is 75 ms of audio vanishing at
+        // once: plainly audible, and indistinguishable from the dropouts this is meant to
+        // prevent. Two milliseconds is below the threshold of hearing and drift is slow
+        // enough that shaving it off gradually keeps up easily.
         if filled > targetSamples * 3 / 2 {
-            ring.drop(samples: filled - targetSamples)
+            let sliver = Int(0.002 * sampleRate) * 2
+            ring.drop(samples: min(sliver, filled - targetSamples))
         }
 
         if packetsReceived.isMultiple(of: 20) {
