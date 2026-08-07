@@ -1,8 +1,11 @@
 import SwiftUI
+import TrackpadProtocol
 
 struct ContentView: View {
     @State private var session = PhoneSession()
     @State private var showSettings = true
+    @State private var showKeyboard = false
+    @State private var modifiers: KeyModifiers = []
     @FocusState private var hostFieldFocused: Bool
 
     var body: some View {
@@ -14,6 +17,8 @@ struct ContentView: View {
             // It alone keeps the safe area — in landscape the physical top-left corner is
             // behind the Dynamic Island.
             revealButton
+            KeyboardCapture(isActive: $showKeyboard, modifiers: $modifiers) { session.send($0) }
+                .frame(width: 0, height: 0)
             if showSettings { settingsPanel.ignoresSafeArea() }
         }
         .preferredColorScheme(.dark)
@@ -62,6 +67,17 @@ struct ContentView: View {
                 Image(systemName: "slider.horizontal.3")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(statusColor)
+                    .frame(width: 34, height: 34)
+                    .background(Color(white: 0.16), in: Circle())
+            }
+            .allowsHitTesting(!showSettings)
+
+            Button {
+                showKeyboard.toggle()
+            } label: {
+                Image(systemName: showKeyboard ? "keyboard.chevron.compact.down" : "keyboard")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
                     .frame(width: 34, height: 34)
                     .background(Color(white: 0.16), in: Circle())
             }

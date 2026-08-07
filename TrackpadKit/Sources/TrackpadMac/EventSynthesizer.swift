@@ -16,7 +16,7 @@ public final class EventSynthesizer {
     /// from the config it starts from, so a slider can move it while the receiver runs.
     public var scrollGain: Double
 
-    private let source = CGEventSource(stateID: .hidSystemState)
+    let source = CGEventSource(stateID: .hidSystemState)
     private let queue: DispatchQueue
     private let config: GestureConfig
 

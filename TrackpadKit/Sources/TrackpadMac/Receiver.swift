@@ -112,6 +112,9 @@ public final class Receiver: @unchecked Sendable {
                 connection.send(content: reply.encode(), completion: .idempotent)
             }
 
+        case .keyInput(let key):
+            session.handle(key)
+
         case .echoReply, .feedback:
             break  // Mac never receives these.
         }

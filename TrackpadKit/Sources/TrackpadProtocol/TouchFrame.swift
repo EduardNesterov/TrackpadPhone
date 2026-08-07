@@ -92,6 +92,38 @@ public struct Hello: Sendable, Equatable {
     }
 }
 
+public struct KeyModifiers: OptionSet, Sendable, Equatable {
+    public let rawValue: UInt8
+    public init(rawValue: UInt8) { self.rawValue = rawValue }
+
+    public static let shift = KeyModifiers(rawValue: 1 << 0)
+    public static let control = KeyModifiers(rawValue: 1 << 1)
+    public static let option = KeyModifiers(rawValue: 1 << 2)
+    public static let command = KeyModifiers(rawValue: 1 << 3)
+}
+
+/// Phone → Mac: something was typed.
+///
+/// Two shapes in one packet. With no `keyCode` the text is inserted literally, which is
+/// how ordinary typing arrives — and going through Unicode rather than key codes means
+/// Cyrillic and emoji need no keyboard-layout gymnastics at all. With a `keyCode` it is a
+/// physical key: Return, Escape, an arrow, or a letter carrying modifiers, because a
+/// shortcut is defined by the key rather than by the character it would have produced.
+public struct KeyInput: Sendable, Equatable {
+    public var keyCode: UInt16
+    public var modifiers: KeyModifiers
+    public var text: String
+
+    public init(keyCode: UInt16 = 0, modifiers: KeyModifiers = [], text: String = "") {
+        self.keyCode = keyCode
+        self.modifiers = modifiers
+        self.text = text
+    }
+
+    /// Keeps one packet inside a datagram; nobody types 200 characters in one event.
+    public static let maxTextBytes = 200
+}
+
 public enum FeedbackKind: UInt8, Sendable, Equatable, CaseIterable {
     /// A click landed. Crisp and short.
     case click = 0

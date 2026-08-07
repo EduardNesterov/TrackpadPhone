@@ -90,6 +90,41 @@ struct PacketCodecTests {
         #expect(decoded == echo)
     }
 
+    /// Cyrillic and emoji are the point of routing text as Unicode rather than key codes.
+    @Test("Typed text survives a round trip", arguments: ["hello", "Привіт", "🙂 ok", "", "a"])
+    func keyInputTextRoundTrip(text: String) throws {
+        let input = KeyInput(modifiers: [.command, .shift], text: text)
+        guard case .keyInput(let decoded) = try Packet.decode(Packet.keyInput(input).encode()) else {
+            Issue.record("decoded to the wrong case")
+            return
+        }
+        #expect(decoded == input)
+    }
+
+    @Test("A named key survives a round trip")
+    func keyInputCodeRoundTrip() throws {
+        let input = KeyInput(keyCode: 126, modifiers: [.control])
+        guard case .keyInput(let decoded) = try Packet.decode(Packet.keyInput(input).encode()) else {
+            Issue.record("decoded to the wrong case")
+            return
+        }
+        #expect(decoded == input)
+    }
+
+    /// The length field is one byte, so an over-long string has to be cut on the way out
+    /// rather than corrupting the frame.
+    @Test("Over-long text is truncated, not mangled")
+    func keyInputTextTruncated() throws {
+        let input = KeyInput(text: String(repeating: "я", count: 300))
+        let encoded = Packet.keyInput(input).encode()
+        guard case .keyInput(let decoded) = try Packet.decode(encoded) else {
+            Issue.record("decoded to the wrong case")
+            return
+        }
+        #expect(decoded.text.utf8.count <= KeyInput.maxTextBytes)
+        #expect(encoded.count < 256)
+    }
+
     @Test("Feedback survives a round trip", arguments: FeedbackKind.allCases)
     func feedbackRoundTrip(kind: FeedbackKind) throws {
         let feedback = Feedback(kind: kind, intensity: 173)

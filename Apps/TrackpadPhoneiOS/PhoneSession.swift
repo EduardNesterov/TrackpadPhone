@@ -224,6 +224,16 @@ final class PhoneSession {
         }
     }
 
+    func send(_ key: KeyInput) {
+        guard state == .connected else { return }
+        // Sent once, deliberately, unlike hello. Keystrokes carry no sequence number and
+        // the Mac has no way to recognise a repeat, so a redundant copy would type the
+        // character twice — and a doubled letter is a worse failure than a missed one,
+        // because the user cannot tell it was the network. Reliability here belongs on
+        // the control channel that M1 will bring, not in blind repetition.
+        send(.keyInput(key))
+    }
+
     private func send(_ packet: Packet) {
         connection?.send(content: packet.encode(), completion: .idempotent)
     }

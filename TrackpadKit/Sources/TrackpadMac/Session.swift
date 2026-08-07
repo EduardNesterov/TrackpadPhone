@@ -38,6 +38,15 @@ public final class Session {
     public var onFeedback: ((Feedback) -> Void)?
     private var lastContactCount = -1
 
+    private lazy var keyboard = Keyboard(source: synthesizer.source)
+
+    public func handle(_ key: KeyInput) {
+        if debug {
+            print("\(Self.stamp())  ⌨ code \(key.keyCode) mods \(key.modifiers.rawValue) '\(key.text)'")
+        }
+        keyboard.apply(key)
+    }
+
     public init(recognizer: GestureRecognizer, synthesizer: EventSynthesizer) {
         self.recognizer = recognizer
         self.synthesizer = synthesizer

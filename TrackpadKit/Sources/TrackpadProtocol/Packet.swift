@@ -8,6 +8,7 @@ import Foundation
 ///     touchFrame  + u16 seq, u32 tSensorUs, u8 count, u8 flags, count × contact
 ///     contact     u8 id, u8 phase, i16 x, i16 y, u16 majorRadius     (8 bytes)
 ///     hello       + u32 sessionID, f32 widthMM, f32 heightMM, u8 maxContacts
+///     keyInput    + u16 keyCode, u8 modifiers, u8 textLength, textLength × u8 (UTF-8)
 ///     echoReply   + u16 seq, u32 tSensorUs, u32 tServerUs
 ///     feedback    + u8 kind, u8 intensity
 ///
@@ -15,12 +16,14 @@ import Foundation
 public enum Packet: Sendable, Equatable {
     case touchFrame(TouchFrame)
     case hello(Hello)
+    case keyInput(KeyInput)
     case echoReply(EchoReply)
     case feedback(Feedback)
 
     enum WireType: UInt8 {
         case touchFrame = 0x01
         case hello = 0x02
+        case keyInput = 0x03
         case echoReply = 0x10
         case feedback = 0x11
     }
@@ -87,6 +90,14 @@ public extension Packet {
             w.f32(hello.surfaceHeightMM)
             w.u8(hello.maxContacts)
 
+        case .keyInput(let key):
+            w.u8(WireType.keyInput.rawValue)
+            w.u16(key.keyCode)
+            w.u8(key.modifiers.rawValue)
+            let bytes = Array(key.text.utf8.prefix(KeyInput.maxTextBytes))
+            w.u8(UInt8(bytes.count))
+            for byte in bytes { w.u8(byte) }
+
         case .echoReply(let echo):
             w.u8(WireType.echoReply.rawValue)
             w.u16(echo.seq)
@@ -145,6 +156,18 @@ public extension Packet {
                 surfaceHeightMM: try r.f32(),
                 maxContacts: try r.u8()
             ))
+
+        case .keyInput:
+            let keyCode = try r.u16()
+            let modifiers = KeyModifiers(rawValue: try r.u8())
+            let length = Int(try r.u8())
+            var bytes: [UInt8] = []
+            bytes.reserveCapacity(length)
+            for _ in 0 ..< length { bytes.append(try r.u8()) }
+            // Invalid UTF-8 is not worth dropping the packet over when a key code may be
+            // the real payload; the modifiers and key still mean something.
+            let text = String(decoding: bytes, as: UTF8.self)
+            return .keyInput(KeyInput(keyCode: keyCode, modifiers: modifiers, text: text))
 
         case .echoReply:
             return .echoReply(EchoReply(
