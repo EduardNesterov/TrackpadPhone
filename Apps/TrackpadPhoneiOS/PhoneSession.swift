@@ -56,6 +56,7 @@ final class PhoneSession {
     }
 
     private let haptics = Haptics()
+    let audio = AudioPlayer()
 
     private static let hapticsKey = "trackpadphone.haptics"
     private static let hapticStrengthKey = "trackpadphone.hapticStrength"
@@ -252,6 +253,9 @@ final class PhoneSession {
 
     private func handle(_ data: Data) {
         switch try? Packet.decode(data) {
+        case .audio(let chunk):
+            audio.play(chunk)
+            return
         case .feedback(let feedback):
             haptics.play(feedback)
             return

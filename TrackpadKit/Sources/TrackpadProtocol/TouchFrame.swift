@@ -149,6 +149,31 @@ public struct Feedback: Sendable, Equatable {
     }
 }
 
+/// Mac → phone: a slice of whatever the Mac is playing.
+///
+/// Interleaved 16-bit stereo, uncompressed. On a local network 48 kHz stereo is 1.5 Mbit/s,
+/// which is nothing, and compression would only add encode and decode delay to a budget
+/// that is already the whole question. 5 ms per packet keeps one inside an MTU.
+public struct AudioChunk: Sendable, Equatable {
+    public var seq: UInt16
+    /// Mac host time of the first frame, in microseconds.
+    public var tHostUs: UInt32
+    /// Frames per channel; the payload holds twice this many samples.
+    public var frameCount: Int
+    public var samples: [Int16]
+
+    public init(seq: UInt16, tHostUs: UInt32, frameCount: Int, samples: [Int16]) {
+        self.seq = seq
+        self.tHostUs = tHostUs
+        self.frameCount = frameCount
+        self.samples = samples
+    }
+
+    /// 5 ms at 48 kHz. Bigger packets waste less on headers but coarsen the jitter buffer,
+    /// and the header here is ten bytes against nineteen hundred of payload.
+    public static let maxFrames = 480
+}
+
 /// Mac → phone, mirroring a frame's identity so the phone can measure round-trip time.
 public struct EchoReply: Sendable, Equatable {
     public var seq: UInt16

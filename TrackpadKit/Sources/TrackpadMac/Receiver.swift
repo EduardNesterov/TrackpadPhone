@@ -24,8 +24,17 @@ public final class Receiver: @unchecked Sendable {
     private let port: NWEndpoint.Port
     private var listener: NWListener?
     private var connections: [NWConnection] = []
-    /// Where to send feedback. One phone at a time, so the most recent sender is it.
+    /// Where to send feedback and audio. One phone at a time, so the most recent sender
+    /// is it.
     private var replyTo: NWConnection?
+
+    /// Pushes a packet to the connected phone, if there is one. Used by the audio stream,
+    /// which produces on its own clock rather than in reply to anything.
+    public func push(_ packet: Packet) {
+        queue.async { [weak self] in
+            self?.replyTo?.send(content: packet.encode(), completion: .idempotent)
+        }
+    }
 
     public init(session: Session, port: UInt16, queue: DispatchQueue) {
         self.session = session
@@ -115,7 +124,7 @@ public final class Receiver: @unchecked Sendable {
         case .keyInput(let key):
             session.handle(key)
 
-        case .echoReply, .feedback:
+        case .echoReply, .feedback, .audio:
             break  // Mac never receives these.
         }
     }

@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "TrackpadPhoneMac",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("14.2")],
     dependencies: [
         .package(path: "../../TrackpadKit"),
     ],

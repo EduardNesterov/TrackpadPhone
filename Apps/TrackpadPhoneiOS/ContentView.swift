@@ -182,6 +182,20 @@ struct ContentView: View {
                         .font(.caption)
                         .disabled(session.echoesReceived == 0)
                 }
+
+                if session.audio.packetsReceived > 0 {
+                    HStack(spacing: 18) {
+                        Text("звук").font(.caption2).foregroundStyle(.secondary)
+                        metric("джитер p95", session.audio.arrivalJitterP95Ms)
+                        metric("вихід", session.audio.outputLatencyMs)
+                        metric("у черзі", session.audio.queuedMs)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("втрачено").font(.caption2).foregroundStyle(.secondary)
+                            Text("\(session.audio.packetsLost)")
+                                .font(.system(.callout, design: .monospaced))
+                        }
+                    }
+                }
             }
             .padding(22)
             .background(Color(white: 0.13), in: RoundedRectangle(cornerRadius: 18))

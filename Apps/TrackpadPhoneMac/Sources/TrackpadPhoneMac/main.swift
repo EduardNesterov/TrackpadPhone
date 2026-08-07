@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let queue = DispatchQueue(label: "trackpadphone.receiver")
     private var receiver: Receiver!
+    private var audio: AudioStreamer!
     private var synthesizer: EventSynthesizer!
 
     private var status: Receiver.Status = .starting {
@@ -57,6 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         receiver.onStatus = { [weak self] status in
             DispatchQueue.main.async { self?.status = status }
         }
+
+        audio = AudioStreamer { [weak self] packet in self?.receiver.push(packet) }
 
         do {
             try receiver.start()
@@ -120,6 +123,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         invert.target = self
         invert.state = settings.invertScroll ? .on : .off
         menu.addItem(invert)
+
+        menu.addItem(.separator())
+        let audioItem = NSMenuItem(
+            title: audio.isRunning ? "Зупинити звук на телефон" : "Передавати звук на телефон",
+            action: #selector(toggleAudio),
+            keyEquivalent: ""
+        )
+        audioItem.target = self
+        menu.addItem(audioItem)
+        if audio.isRunning {
+            menu.addItem(disabled(String(
+                format: "   буфер захоплення %.1f мс · %.0f Гц",
+                audio.stats.captureBufferMs, audio.stats.sampleRate
+            )))
+        }
+        if let audioError {
+            menu.addItem(disabled("   \(audioError)"))
+        }
 
         menu.addItem(.separator())
         // Fires the shortcut without any phone involved. When a gesture "does nothing",
@@ -302,6 +323,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
             as? [[String: Any]] else { return -1 }
         return windows.filter { ($0[kCGWindowOwnerName as String] as? String) == owner }.count
+    }
+
+    private var audioError: String?
+
+    @objc private func toggleAudio() {
+        if audio.isRunning {
+            audio.stop()
+            audioError = nil
+        } else {
+            do {
+                try audio.start()
+                audioError = nil
+            } catch {
+                // Almost always the missing System Audio Recording grant, which macOS asks
+                // for on the first attempt and denies silently until given.
+                audioError = "Немає дозволу на запис звуку системи?  \(error)"
+            }
+        }
+        refreshMenu()
     }
 
     @objc private func probeShortcut() {
