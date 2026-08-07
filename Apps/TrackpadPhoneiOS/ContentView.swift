@@ -5,7 +5,11 @@ struct ContentView: View {
     @State private var session = PhoneSession()
     @State private var showSettings = true
     @State private var showKeyboard = false
-    @State private var modifiers: KeyModifiers = []
+
+    /// Height left for the trackpad when the keyboard is up. Enough to nudge the cursor
+    /// and reach a menu without dismissing anything — the keyboard takes the rest, which
+    /// is the whole point of drawing our own instead of using the system one.
+    private let trackpadStripHeight: Double = 92
     @FocusState private var hostFieldFocused: Bool
 
     var body: some View {
@@ -17,9 +21,8 @@ struct ContentView: View {
             // It alone keeps the safe area — in landscape the physical top-left corner is
             // behind the Dynamic Island.
             revealButton
-            KeyboardCapture(isActive: $showKeyboard, modifiers: $modifiers) { session.send($0) }
-                .frame(width: 0, height: 0)
-            if showSettings { settingsPanel.ignoresSafeArea() }
+            if showKeyboard { keyboard }
+            if showSettings { settingsPanel }
         }
         .preferredColorScheme(.dark)
         .persistentSystemOverlays(.hidden)
@@ -29,6 +32,11 @@ struct ContentView: View {
             UIApplication.shared.isIdleTimerDisabled = true
             if UserDefaults.standard.bool(forKey: "autoconnect") {
                 session.connect()
+            }
+            // Lets a launch script open the keyboard, which cannot be tapped from a script:
+            //   simctl launch booted <id> -keyboard 1
+            if UserDefaults.standard.bool(forKey: "keyboard") {
+                showKeyboard = true
             }
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
@@ -96,11 +104,25 @@ struct ContentView: View {
         .padding(.top, 10)
     }
 
+    /// Deliberately *not* ignoring the horizontal safe area: in landscape the Dynamic
+    /// Island sits over one edge, and the first key in the row — escape — was disappearing
+    /// underneath it.
+    private var keyboard: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: trackpadStripHeight)
+            CustomKeyboard(onKeyInput: { session.send($0) }, isVisible: $showKeyboard)
+        }
+    }
+
     // MARK: - Settings
 
     private var settingsPanel: some View {
         ZStack {
+            // Only the backdrop reaches the screen edges. The card itself stays inside the
+            // safe area, or in landscape the Dynamic Island eats its left-hand column —
+            // which is what was clipping "не підключено" down to "е підключено".
             Color.black.opacity(0.75)
+                .ignoresSafeArea()
                 .onTapGesture {
                     hostFieldFocused = false
                     if session.state == .connected { showSettings = false }
