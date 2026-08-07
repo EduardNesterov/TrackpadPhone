@@ -106,11 +106,11 @@ public final class Session {
     private static func feedback(for event: InputEvent) -> Feedback? {
         switch event {
         case .click:
-            return Feedback(kind: .click, intensity: 200)
+            return Feedback(kind: .click, intensity: 255)
         case .dragBegan, .dragEnded:
-            return Feedback(kind: .click, intensity: 150)
+            return Feedback(kind: .click, intensity: 190)
         case .shortcut:
-            return Feedback(kind: .gesture, intensity: 220)
+            return Feedback(kind: .gesture, intensity: 255)
         case .move, .scroll, .zoom:
             return nil
         }

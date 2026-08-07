@@ -46,9 +46,19 @@ final class PhoneSession {
         }
     }
 
+    /// Multiplies every buzz. Kept on the phone rather than the Mac because it is about
+    /// how this handset feels in this hand, not about what happened on the desktop.
+    var hapticStrength: Double {
+        didSet {
+            UserDefaults.standard.set(hapticStrength, forKey: Self.hapticStrengthKey)
+            haptics.strength = hapticStrength
+        }
+    }
+
     private let haptics = Haptics()
 
     private static let hapticsKey = "trackpadphone.haptics"
+    private static let hapticStrengthKey = "trackpadphone.hapticStrength"
     private static let hostKey = "trackpadphone.host"
     private static let defaultPort: UInt16 = 51888
 
@@ -74,7 +84,9 @@ final class PhoneSession {
     init() {
         host = UserDefaults.standard.string(forKey: Self.hostKey) ?? ""
         hapticsEnabled = UserDefaults.standard.object(forKey: Self.hapticsKey) as? Bool ?? true
+        hapticStrength = UserDefaults.standard.object(forKey: Self.hapticStrengthKey) as? Double ?? 1.0
         haptics.isEnabled = hapticsEnabled
+        haptics.strength = hapticStrength
         // Starting the engine up front matters: the first pattern on a cold engine is
         // late by tens of milliseconds, which is exactly the click you most want to feel.
         haptics.start()
@@ -127,6 +139,12 @@ final class PhoneSession {
         connection?.cancel()
         connection = nil
         state = .idle
+    }
+
+    /// Plays a click on demand, so the strength slider can be judged while dragging it
+    /// instead of by putting the phone down and tapping.
+    func previewHaptic() {
+        haptics.play(Feedback(kind: .click, intensity: 255))
     }
 
     func resetStats() {

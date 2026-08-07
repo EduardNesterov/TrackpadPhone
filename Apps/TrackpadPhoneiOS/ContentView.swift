@@ -122,6 +122,14 @@ struct ContentView: View {
                         .toggleStyle(.switch)
                         .font(.caption)
                         .fixedSize()
+
+                    Slider(value: $session.hapticStrength, in: 0.2 ... 1.0) { editing in
+                        // Fires as the thumb is released, so the new strength can be felt
+                        // straight away rather than guessed at.
+                        if !editing { session.previewHaptic() }
+                    }
+                    .frame(width: 110)
+                    .disabled(!session.hapticsEnabled)
                 }
 
                 HStack(spacing: 18) {

@@ -20,7 +20,7 @@ final class Haptics {
 
     private var engine: CHHapticEngine?
     private let supportsHaptics = CHHapticEngine.capabilitiesForHardware().supportsHaptics
-    private lazy var fallback = UIImpactFeedbackGenerator(style: .light)
+    private lazy var fallback = UIImpactFeedbackGenerator(style: .heavy)
 
     func start() {
         guard isEnabled, supportsHaptics, engine == nil else { return }
@@ -52,9 +52,15 @@ final class Haptics {
         engine = nil
     }
 
+    /// User-facing multiplier, 0...1. Perception depends heavily on how the phone is
+    /// resting — flat on a desk, most of the energy goes into the desk rather than the
+    /// finger — so this is not something a fixed value can get right for everyone.
+    var strength: Double = 1.0
+
     func play(_ feedback: Feedback) {
         guard isEnabled else { return }
-        let intensity = Float(feedback.intensity) / 255
+        let intensity = Float(min(1, Double(feedback.intensity) / 255 * strength))
+        guard intensity > 0.02 else { return }
 
         guard supportsHaptics else {
             fallback.impactOccurred(intensity: CGFloat(intensity))
@@ -63,26 +69,43 @@ final class Haptics {
         if engine == nil { start() }
         guard let engine else { return }
 
-        // Sharpness is what separates the two: a click is a tick, a gesture is a thud.
-        let sharpness: Float = switch feedback.kind {
-        case .click: 0.85
-        case .gesture: 0.25
-        }
-
-        let event = CHHapticEvent(
-            eventType: .hapticTransient,
-            parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
-                CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
-            ],
-            relativeTime: 0
-        )
-
         do {
-            let pattern = try CHHapticPattern(events: [event], parameters: [])
+            let pattern = try CHHapticPattern(events: events(for: feedback.kind, intensity: intensity),
+                                              parameters: [])
             try engine.makePlayer(with: pattern).start(atTime: CHHapticTimeImmediate)
         } catch {
             fallback.impactOccurred(intensity: CGFloat(intensity))
+        }
+    }
+
+    /// Attack plus body, rather than a bare transient.
+    ///
+    /// A lone `.hapticTransient` lasts around ten milliseconds, and high sharpness makes
+    /// it a high-frequency tick: audible, but the actual displacement is tiny and a finger
+    /// resting on glass barely registers it. Low sharpness moves the chassis further, and
+    /// a short continuous tail gives the skin long enough to notice. The transient is kept
+    /// only for the edge, so a click still reads as a click and not a hum.
+    private func events(for kind: FeedbackKind, intensity: Float) -> [CHHapticEvent] {
+        func parameters(_ sharpness: Float) -> [CHHapticEventParameter] {
+            [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
+            ]
+        }
+
+        switch kind {
+        case .click:
+            return [
+                CHHapticEvent(eventType: .hapticTransient, parameters: parameters(0.55), relativeTime: 0),
+                CHHapticEvent(eventType: .hapticContinuous, parameters: parameters(0.1),
+                              relativeTime: 0, duration: 0.045),
+            ]
+        case .gesture:
+            // Longer and duller, so a recognised gesture cannot be mistaken for a click.
+            return [
+                CHHapticEvent(eventType: .hapticContinuous, parameters: parameters(0.0),
+                              relativeTime: 0, duration: 0.11),
+            ]
         }
     }
 }
