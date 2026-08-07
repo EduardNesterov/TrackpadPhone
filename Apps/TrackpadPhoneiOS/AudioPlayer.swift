@@ -137,6 +137,12 @@ final class AudioPlayer {
         measureArrival()
 
         if let last = lastSeq {
+            // Duplicates and stragglers are dropped before anything else. The Mac may send
+            // every packet twice for redundancy, and without this the copy looks like a
+            // sequence number going backwards — which the branch below reads as a restarted
+            // stream and answers by throwing the whole buffer away.
+            guard isNewer(chunk.seq, than: last) else { return }
+
             let missing = Int(chunk.seq &- last) - 1
             // A modest gap is loss. A huge one means the Mac restarted its stream, and
             // carrying the old buffer across would only play stale audio.

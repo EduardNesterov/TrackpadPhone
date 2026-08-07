@@ -30,6 +30,7 @@ struct ContentView: View {
         .defersSystemGestures(on: .all)
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
+            session.browser.start()
             if UserDefaults.standard.bool(forKey: "autoconnect") {
                 session.connect()
             }
@@ -129,6 +130,22 @@ struct ContentView: View {
                 }
 
             VStack(spacing: 14) {
+                // Discovered Macs first: connecting by service is what puts the link on
+                // AWDL, while a typed address always goes through the router.
+                if !session.browser.results.isEmpty {
+                    HStack(spacing: 8) {
+                        Text("поруч").font(.caption2).foregroundStyle(.secondary)
+                        ForEach(session.browser.results) { found in
+                            Button(found.name) { session.connect(to: found) }
+                                .buttonStyle(.bordered)
+                                .font(.caption)
+                        }
+                        if let service = session.connectedService {
+                            Text("· \(service), напряму").font(.caption2).foregroundStyle(.green)
+                        }
+                    }
+                }
+
                 HStack(spacing: 8) {
                     TextField("192.168.1.10", text: $session.host)
                         .textFieldStyle(.roundedBorder)

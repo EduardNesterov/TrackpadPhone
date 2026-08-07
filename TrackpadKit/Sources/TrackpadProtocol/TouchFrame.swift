@@ -7,6 +7,14 @@ public enum ProtocolError: Error, Equatable, Sendable {
     case tooManyContacts(Int)
 }
 
+/// Bonjour service type. UDP because that is what the data channel is.
+///
+/// Announcing a service is not decoration: connecting to a *service* rather than to an IP
+/// address is what lets Network.framework put the link on AWDL — the same peer-to-peer
+/// Wi-Fi that carries AirDrop — instead of routing through the access point. Dialling a
+/// literal address never takes that path however the parameters are set.
+public let bonjourServiceType = "_trackpadphone._udp"
+
 /// Wire protocol version. Bump only on incompatible layout changes.
 public let protocolVersion: UInt8 = 1
 

@@ -15,6 +15,15 @@ public final class AudioStreamer: @unchecked Sendable {
         public var sampleRate: Double = 0
     }
 
+    /// Sends every packet twice.
+    ///
+    /// A lost audio packet cannot be asked for again — by the time the loss is noticed the
+    /// moment has passed — so the only defence is to have already sent a spare. At
+    /// 1.5 Mbit/s the copy costs nothing on a local network, and it turns isolated loss,
+    /// which is what Wi-Fi actually produces, into no loss at all. The phone drops the
+    /// copy by sequence number.
+    public var sendsRedundantCopies = true
+
     public private(set) var stats = Stats()
     public var isRunning: Bool { capture != nil }
 
@@ -72,10 +81,12 @@ public final class AudioStreamer: @unchecked Sendable {
         while pending.count >= framesPerPacket * 2 {
             let payload = Array(pending.prefix(framesPerPacket * 2))
             pending.removeFirst(framesPerPacket * 2)
-            send(.audio(AudioChunk(
+            let chunk = AudioChunk(
                 seq: sequence, tHostUs: pendingHostUs,
                 frameCount: framesPerPacket, samples: payload
-            )))
+            )
+            send(.audio(chunk))
+            if sendsRedundantCopies { send(.audio(chunk)) }
             sequence &+= 1
             stats.packetsSent += 1
             // Roughly every two seconds at 200 packets/s. Without it there is no way to

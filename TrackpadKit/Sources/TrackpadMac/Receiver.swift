@@ -54,6 +54,10 @@ public final class Receiver: @unchecked Sendable {
         params.includePeerToPeer = true
 
         let listener = try NWListener(using: params, on: port)
+        // Advertised under the Mac's own name, so the phone shows something recognisable
+        // rather than an address.
+        listener.service = NWListener.Service(name: Host.current().localizedName ?? "Mac",
+                                              type: bonjourServiceType)
         listener.newConnectionHandler = { [weak self] connection in
             guard let self else { return }
             self.connections.append(connection)
