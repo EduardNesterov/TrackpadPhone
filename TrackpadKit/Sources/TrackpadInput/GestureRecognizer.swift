@@ -285,9 +285,14 @@ public final class GestureRecognizer {
             return [.move(dxMM: delta.x, dyMM: delta.y, speedMMPerS: pointerVelocity.speed)]
 
         default:
-            // A finger left a multi-finger gesture — the hand is on its way off the
-            // surface, so a scroll ending here still deserves its momentum.
-            let closing = closeScroll(fingersLeaving: true)
+            // A finger left a multi-finger gesture, so the hand is on its way off the
+            // surface. This transition — not the moment the surface finally goes empty —
+            // is where a two-finger gesture actually ends, because two fingers hardly ever
+            // leave in the same frame. Deferring the decision to full lift-off means the
+            // right click is simply never emitted, and a scroll loses its momentum.
+            let closing = phase == .twoFinger
+                ? tapEvents(button: .right)
+                : closeScroll(fingersLeaving: true)
             phase = .ignoring
             return closing
         }

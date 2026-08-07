@@ -115,6 +115,22 @@ struct ClickTests {
         #expect(events.scrolls.isEmpty)
     }
 
+    /// Two fingers rarely leave the glass in the same frame — the same thing that was
+    /// quietly killing scroll momentum until it was found.
+    @Test("A two-finger tap works when the fingers lift one after the other")
+    func raggedTwoFingerTapIsRightClick() {
+        var stream = TouchStreamBuilder()
+        stream.place(0, xMM: 30, yMM: 75)
+        stream.place(1, xMM: 42, yMM: 75)
+        stream.hold(0.05)
+        stream.lift(1)
+        stream.lift(0)
+
+        let events = GestureRecognizer().run(stream)
+        #expect(events.clicks == [.click(.right, count: 1)])
+        #expect(events.moves.isEmpty, "the finger left behind must not move the pointer")
+    }
+
     @Test("Tap, then touch and move, is a drag")
     func tapAndAHalfDrags() {
         var stream = TouchStreamBuilder()
