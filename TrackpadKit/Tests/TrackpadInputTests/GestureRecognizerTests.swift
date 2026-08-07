@@ -17,10 +17,11 @@ struct PointerTests {
         let events = GestureRecognizer().run(stream)
         let total = events.totalMoveMM
 
-        // The tap slop is a dead zone, so a couple of millimetres are deliberately
-        // swallowed before the pointer commits to moving.
-        #expect(total.x > 26 && total.x <= 30)
-        #expect(total.y < -8 && total.y >= -10)
+        // The whole travel is delivered. The tap slop delays the *decision* to move, but
+        // the movement made while deciding is released on commit rather than discarded —
+        // swallowing it is what makes a pointer feel like it sticks before it starts.
+        #expect(abs(total.x - 30) < 0.5)
+        #expect(abs(total.y + 10) < 0.5)
         #expect(events.clicks.isEmpty, "a long drag is not a click")
     }
 
@@ -570,30 +571,118 @@ struct MomentumTests {
     }
 }
 
-@Suite("Acceleration")
+@Suite("Acceleration curve")
 struct AccelerationTests {
-    @Test("Slow is precise, fast is far, and the top is clamped")
-    func curveIsMonotonic() {
+    /// The shape that matters: damped below unity for precision, unity in the middle,
+    /// rising to a cap. A straight line cannot do the first part at all.
+    @Test("Slow is damped, middle is unity, fast is capped")
+    func curveShape() {
         let curve = AccelerationCurve()
-        #expect(curve.gain(speedMMPerS: 0) == curve.base)
-        #expect(curve.gain(speedMMPerS: 100) > curve.gain(speedMMPerS: 10))
-        #expect(curve.gain(speedMMPerS: 100_000) == curve.maximum)
+        #expect(curve.factor(speedMMPerS: 2) < 0.6, "creeping must move the pointer less than the finger")
+        #expect(abs(curve.factor(speedMMPerS: 35) - 1.0) < 0.01)
+        #expect(curve.factor(speedMMPerS: 5000) == curve.knots.last!.factor, "capped, never extrapolated")
     }
 
-    /// The floor only bites once someone tunes `base` below it — with the defaults it is
-    /// a guard rail, not an active limit.
-    @Test("The floor catches a base tuned too low")
-    func floorClamps() {
-        var curve = AccelerationCurve()
-        curve.base = 0.1
-        #expect(curve.gain(speedMMPerS: 0) == curve.minimum)
+    @Test("The curve never goes backwards")
+    func monotonic() {
+        let curve = AccelerationCurve()
+        for step in 0 ..< 130 {
+            let speed = Double(step) * 7
+            #expect(curve.factor(speedMMPerS: speed) <= curve.factor(speedMMPerS: speed + 7))
+        }
     }
 
-    @Test("Sensitivity scales the whole curve")
+    @Test("Interpolation lands exactly on the knots")
+    func hitsKnots() {
+        let curve = AccelerationCurve()
+        for knot in curve.knots {
+            #expect(abs(curve.factor(speedMMPerS: knot.speedMMPerS) - knot.factor) < 1e-9)
+        }
+    }
+
+    @Test("Sensitivity scales the whole curve without moving its shape")
     func sensitivityScales() {
         var curve = AccelerationCurve()
-        let normal = curve.gain(speedMMPerS: 50)
+        let normal = curve.pointsPerMillimetre(speedMMPerS: 50)
+        let shape = curve.factor(speedMMPerS: 50)
         curve.sensitivity = 2
-        #expect(abs(curve.gain(speedMMPerS: 50) - normal * 2) < 1e-9)
+        #expect(abs(curve.pointsPerMillimetre(speedMMPerS: 50) - normal * 2) < 1e-9)
+        #expect(abs(curve.factor(speedMMPerS: 50) - shape) < 1e-9, "the curve itself must not move")
+    }
+}
+
+@Suite("Pointer speed estimate")
+struct PointerVelocityTests {
+    /// Frames are the transport's business. The same physical movement must produce the
+    /// same speed whether it arrived in 6 frames or 60, or gain would depend on the phone.
+    @Test("Steady movement reads the same at any frame rate", arguments: [60.0, 120.0, 240.0])
+    func frameRateIndependent(hz: Double) {
+        var velocity = PointerVelocity()
+        let step = 1 / hz
+        var time = 0.0
+        // 200 mm/s for long enough to fill the window.
+        for _ in 0 ..< Int(hz * 0.2) {
+            time += step
+            velocity.add(delta: Vec(x: 200 * step, y: 0), dt: step, at: time)
+        }
+        #expect(abs(velocity.speed - 200) < 10)
+    }
+
+    /// The reversal rule. Without it the estimate still holds the speed built up going one
+    /// way when the finger starts going the other, and the pointer bolts.
+    @Test("A reversal drops the old speed instead of carrying it")
+    func reversalResets() {
+        var velocity = PointerVelocity()
+        var time = 0.0
+        for _ in 0 ..< 20 {
+            time += 1.0 / 120
+            velocity.add(delta: Vec(x: 3, y: 0), dt: 1.0 / 120, at: time)   // fast, rightwards
+        }
+        let before = velocity.speed
+        #expect(before > 200)
+
+        time += 1.0 / 120
+        velocity.add(delta: Vec(x: -0.1, y: 0), dt: 1.0 / 120, at: time)    // now creeping left
+        #expect(velocity.speed < before / 4, "the rightward speed must not survive the turn")
+    }
+
+    /// The burst rule: a flick after careful positioning should reach high gain at once.
+    @Test("A sudden burst is picked up within a frame or two")
+    func burstCatchesUp() {
+        var velocity = PointerVelocity()
+        var time = 0.0
+        for _ in 0 ..< 20 {
+            time += 1.0 / 120
+            velocity.add(delta: Vec(x: 0.05, y: 0), dt: 1.0 / 120, at: time)  // 6 mm/s, slow
+        }
+        #expect(velocity.speed < 20)
+
+        for _ in 0 ..< 2 {
+            time += 1.0 / 120
+            velocity.add(delta: Vec(x: 3, y: 0), dt: 1.0 / 120, at: time)     // 360 mm/s
+        }
+        #expect(velocity.speed > 200, "two frames of a flick must already read as fast")
+    }
+
+    /// A tremor reverses every frame, so it never accumulates the two samples an estimate
+    /// needs — it can never present itself as travel.
+    @Test("A wandering finger reads slow, not fast")
+    func wanderingIsSlow() {
+        var velocity = PointerVelocity()
+        var time = 0.0
+        for step in 0 ..< 20 {
+            time += 1.0 / 120
+            let sign: Double = step.isMultiple(of: 2) ? 1 : -1
+            velocity.add(delta: Vec(x: 2 * sign, y: 0), dt: 1.0 / 120, at: time)
+        }
+        #expect(velocity.speed < 60, "back-and-forth is not crossing the screen")
+    }
+
+    @Test("Stale samples age out")
+    func staleSamplesExpire() {
+        var velocity = PointerVelocity()
+        velocity.add(delta: Vec(x: 5, y: 0), dt: 1.0 / 120, at: 0.01)
+        velocity.add(delta: Vec(x: 0.01, y: 0), dt: 1.0 / 120, at: 1.0)
+        #expect(velocity.speed < 10, "a second-old flick says nothing about now")
     }
 }

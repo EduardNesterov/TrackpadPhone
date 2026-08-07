@@ -41,8 +41,12 @@ public enum Shortcut: Sendable, Equatable {
 /// screen coordinates. That keeps the whole gesture layer testable without a Mac, a
 /// window server, or Accessibility permission.
 public enum InputEvent: Sendable, Equatable {
-    /// Pointer motion. Acceleration is applied downstream, not here.
-    case move(dxMM: Double, dyMM: Double, dt: Double)
+    /// Pointer motion, with the speed the acceleration curve should be read at.
+    ///
+    /// The speed travels with the event rather than being recomputed downstream, because
+    /// estimating it well takes a trailing window and a reversal rule — logic that belongs
+    /// where it can be tested, not in the layer that talks to CoreGraphics.
+    case move(dxMM: Double, dyMM: Double, speedMMPerS: Double)
     case click(MouseButton, count: Int)
     /// Press-and-hold drag: down, then a run of `move`, then `up`.
     case dragBegan

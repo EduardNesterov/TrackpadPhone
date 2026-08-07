@@ -49,9 +49,9 @@ public final class EventSynthesizer {
 
     public func apply(_ event: InputEvent) {
         switch event {
-        case .move(let dx, let dy, let dt):
+        case .move(let dx, let dy, let speed):
             cancelMomentum()
-            move(dxMM: dx, dyMM: dy, dt: dt)
+            move(dxMM: dx, dyMM: dy, speedMMPerS: speed)
 
         case .click(let button, let count):
             cancelMomentum()
@@ -84,10 +84,8 @@ public final class EventSynthesizer {
 
     // MARK: - Pointer
 
-    private func move(dxMM: Double, dyMM: Double, dt: Double) {
-        let distance = (dxMM * dxMM + dyMM * dyMM).squareRoot()
-        let speed = dt > 0 ? distance / dt : 0
-        let gain = acceleration.gain(speedMMPerS: speed)
+    private func move(dxMM: Double, dyMM: Double, speedMMPerS: Double) {
+        let gain = acceleration.pointsPerMillimetre(speedMMPerS: speedMMPerS)
 
         let wantX = dxMM * gain + residual.x
         let wantY = dyMM * gain + residual.y

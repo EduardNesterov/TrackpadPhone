@@ -36,6 +36,7 @@ public final class GestureRecognizer {
                 surface: SurfaceGeometry = SurfaceGeometry(widthMM: 70, heightMM: 150)) {
         self.config = config
         self.surface = surface
+        pointerVelocity.maxAge = config.pointerVelocityWindow
         velocityTracker.window = config.flickWindow
         velocityTracker.restTimeout = config.flickRestTimeout
         velocityTracker.minimumTravelMM = config.flickMinimumTravelMM
@@ -82,6 +83,7 @@ public final class GestureRecognizer {
     private var lastZoomStep = 0
 
     private var velocityTracker = VelocityTracker()
+    private var pointerVelocity = PointerVelocity()
 
     private var lastClickTime: Double = -.infinity
     private var lastClickPosition = Vec()
@@ -93,6 +95,7 @@ public final class GestureRecognizer {
         tracked.removeAll()
         lastSensorUs = nil
         velocityTracker.reset()
+        pointerVelocity.reset()
         lastClickCount = 0
         dragArmedUntil = -.infinity
     }
@@ -251,26 +254,35 @@ public final class GestureRecognizer {
         case .idle:
             phase = .oneFinger
             lastCentroid = contact.current
+            pointerVelocity.reset()
             return []
 
         case .oneFinger:
-            let delta = contact.current - lastCentroid
-            lastCentroid = contact.current
             guard contact.travel > config.tapSlopMM else { return [] }
-            // Committed to motion. If a tap just happened, this is the drag half of a
-            // tap-and-a-half rather than a fresh pointer move.
+            // Committed to motion. Release everything travelled since touch-down rather
+            // than only this frame's delta: the slop is a dead zone for *deciding*, and
+            // swallowing the movement as well is what makes a pointer feel like it sticks
+            // before it starts.
+            let delta = contact.current - contact.start
+            lastCentroid = contact.current
+            pointerVelocity.add(delta: delta, dt: max(dt, now - contact.startTime), at: now)
+            let speed = pointerVelocity.speed
+
+            // If a tap just happened, this is the drag half of a tap-and-a-half rather
+            // than a fresh pointer move.
             if now <= dragArmedUntil {
                 phase = .dragging
                 dragArmedUntil = -.infinity
-                return [.dragBegan, .move(dxMM: delta.x, dyMM: delta.y, dt: dt)]
+                return [.dragBegan, .move(dxMM: delta.x, dyMM: delta.y, speedMMPerS: speed)]
             }
             phase = .pointing
-            return [.move(dxMM: delta.x, dyMM: delta.y, dt: dt)]
+            return [.move(dxMM: delta.x, dyMM: delta.y, speedMMPerS: speed)]
 
         case .pointing, .dragging:
             let delta = contact.current - lastCentroid
             lastCentroid = contact.current
-            return [.move(dxMM: delta.x, dyMM: delta.y, dt: dt)]
+            pointerVelocity.add(delta: delta, dt: dt, at: now)
+            return [.move(dxMM: delta.x, dyMM: delta.y, speedMMPerS: pointerVelocity.speed)]
 
         default:
             // A finger left a multi-finger gesture — the hand is on its way off the

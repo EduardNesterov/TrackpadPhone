@@ -11,9 +11,23 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 app="$root/dist/TrackpadPhone.app"
 
+# SwiftPM caches the file list of a path dependency and does not notice a *new* source
+# file appearing in it: the build fails with "cannot find X in scope" while the package
+# itself compiles fine. Edits to existing files are picked up normally, so only a change
+# in the file count needs the sledgehammer. This has already cost two confusing failures.
+stamp="$root/Apps/TrackpadPhoneMac/.build/kit-file-count"
+count="$(find "$root/TrackpadKit/Sources" -name '*.swift' | wc -l | tr -d ' ')"
+if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$count" ]; then
+    echo "==> TrackpadKit gained or lost a file — clearing the stale build plan"
+    rm -rf "$root/Apps/TrackpadPhoneMac/.build"
+fi
+
 echo "==> building"
 swift build -c release --package-path "$root/Apps/TrackpadPhoneMac"
 binary="$(swift build -c release --package-path "$root/Apps/TrackpadPhoneMac" --show-bin-path)/TrackpadPhoneMac"
+
+mkdir -p "$(dirname "$stamp")"
+echo "$count" > "$stamp"
 
 echo "==> assembling bundle"
 rm -rf "$app"
