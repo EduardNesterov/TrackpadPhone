@@ -60,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         session.debug = true
 
         receiver = Receiver(session: session, port: 51888, queue: queue)
-        receiver.logsStatistics = false
+        receiver.logsStatistics = true
         receiver.onStatus = { [weak self] status in
             DispatchQueue.main.async { self?.status = status }
         }
