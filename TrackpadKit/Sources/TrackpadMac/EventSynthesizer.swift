@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import TrackpadInput
@@ -245,6 +246,44 @@ public final class EventSynthesizer {
 
     private static let controlKey: CGKeyCode = 59
 
+    /// Ways of expressing "hold Control" to the system. Which one a symbolic hotkey
+    /// actually honours is not documented anywhere reliable, so the app can fire all
+    /// three and record which one worked instead of anyone guessing.
+    public enum ModifierStyle: String, CaseIterable, Sendable {
+        /// Flag on the arrow event only — no modifier keystroke at all.
+        case flagsOnly
+        /// Control sent as an ordinary key down/up around the arrow.
+        case modifierKey
+        /// Control sent as a flagsChanged event, which is what real hardware produces.
+        case flagsChanged
+    }
+
+    /// Sends ⌃↑ using a named strategy. Exposed for the diagnostic probe.
+    public func sendMissionControl(style: ModifierStyle, tap: CGEventTapLocation = .cghidEventTap) {
+        pressWithKeys(126, style: style, tap: tap)
+    }
+
+    /// Sends ⌃← through the plain key path, bypassing the Mission Control special case,
+    /// so the probe can measure what happens to a synthesised keystroke.
+    public func sendSpaceLeft(style: ModifierStyle, tap: CGEventTapLocation = .cghidEventTap) {
+        pressWithKeys(123, style: style, tap: tap)
+    }
+
+    /// Sends an ordinary application shortcut (⌘ + key), as opposed to a system-wide
+    /// symbolic hotkey. Whether these survive synthesis is a separate question, and the
+    /// answer decides what the remaining gestures can usefully be mapped to.
+    public func sendCommandKey(_ key: CGKeyCode) {
+        postModifier(down: true, tap: .cghidEventTap, flags: .maskCommand)
+        postKey(key, down: true, flags: .maskCommand)
+        postKey(key, down: false, flags: .maskCommand)
+        postModifier(down: false, tap: .cghidEventTap, flags: .maskCommand)
+    }
+
+    public func sendEscape() {
+        postKey(53, down: true, flags: [])
+        postKey(53, down: false, flags: [])
+    }
+
     /// Sends a real ⌃-modified keystroke.
     ///
     /// Setting `flags = .maskControl` on the arrow event alone is not enough, and this
@@ -259,24 +298,59 @@ public final class EventSynthesizer {
     /// subsequent tap turned into a context menu.
     ///
     /// Pressing and releasing the modifier for real fixes both.
-    private func press(_ shortcut: Shortcut) {
-        let key: CGKeyCode = switch shortcut {
-        case .missionControl: 126      // ⌃↑
-        case .applicationWindows: 125  // ⌃↓
-        case .spaceLeft: 123           // ⌃←
-        case .spaceRight: 124          // ⌃→
-        }
+    private func press(_ shortcut: Shortcut, style: ModifierStyle? = nil, tap: CGEventTapLocation = .cghidEventTap) {
+        switch shortcut {
+        case .missionControl:
+            // Measured on macOS 26, not assumed: ⌃↑ was fired five ways — flag-only,
+            // modifier-as-key and modifier-as-flagsChanged, at both the HID and session
+            // taps — and moved nothing, while a listen-only tap confirmed every event
+            // reached the stream carrying maskControl. Symbolic hotkeys are refused by
+            // policy. Launching the application is the supported route and works.
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Mission Control.app"))
 
-        postKey(Self.controlKey, down: true, flags: .maskControl)
-        postKey(key, down: true, flags: .maskControl)
-        postKey(key, down: false, flags: .maskControl)
-        postKey(Self.controlKey, down: false, flags: [])
+        case .navigateBack:
+            sendCommandKey(33)   // ⌘[
+        case .navigateForward:
+            sendCommandKey(30)   // ⌘]
+        }
     }
 
-    private func postKey(_ key: CGKeyCode, down: Bool, flags: CGEventFlags) {
+    /// Kept for the diagnostic probe: fires ⌃← through the plain key path so the
+    /// experiment above can be repeated if a future macOS changes the rules.
+    private func pressWithKeys(_ key: CGKeyCode, style: ModifierStyle, tap: CGEventTapLocation) {
+        switch style {
+        case .flagsOnly:
+            postKey(key, down: true, flags: .maskControl, tap: tap)
+            postKey(key, down: false, flags: .maskControl, tap: tap)
+
+        case .modifierKey:
+            postKey(Self.controlKey, down: true, flags: .maskControl, tap: tap)
+            postKey(key, down: true, flags: .maskControl, tap: tap)
+            postKey(key, down: false, flags: .maskControl, tap: tap)
+            postKey(Self.controlKey, down: false, flags: [], tap: tap)
+
+        case .flagsChanged:
+            // Real hardware reports a modifier as a flagsChanged event, not a key press.
+            postModifier(down: true, tap: tap)
+            postKey(key, down: true, flags: .maskControl, tap: tap)
+            postKey(key, down: false, flags: .maskControl, tap: tap)
+            postModifier(down: false, tap: tap)
+        }
+    }
+
+    private func postModifier(down: Bool, tap: CGEventTapLocation = .cghidEventTap, flags: CGEventFlags = .maskControl) {
+        let code: CGKeyCode = flags == .maskCommand ? 55 : Self.controlKey
+        guard let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down) else { return }
+        event.type = .flagsChanged
+        event.flags = down ? flags : []
+        event.post(tap: tap)
+        usleep(15_000)
+    }
+
+    private func postKey(_ key: CGKeyCode, down: Bool, flags: CGEventFlags, tap: CGEventTapLocation = .cghidEventTap) {
         guard let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: down) else { return }
         event.flags = flags
-        event.post(tap: .cghidEventTap)
+        event.post(tap: tap)
         // The WindowServer processes the modifier change asynchronously, and a hotkey
         // arriving in the same instant can be evaluated before Control is seen as down.
         // 15 ms is well inside human reaction time for something that fires once per

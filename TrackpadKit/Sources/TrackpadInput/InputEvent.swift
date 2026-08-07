@@ -18,16 +18,21 @@ public enum ScrollPhase: Sendable, Equatable {
     case ended(velocityX: Double, velocityY: Double)
 }
 
-/// Keyboard shortcuts we send in place of real multi-touch gestures.
+/// System actions we trigger in place of real multi-touch gestures.
 ///
-/// macOS exposes no public API for synthesising a genuine pinch or swipe — the real
-/// mechanism is a private event type that breaks across releases. Mapping onto shortcuts
-/// covers the same intent through supported means. See docs/ARCHITECTURE.md §5.
+/// Named for intent rather than for a key combination, because the key combination is not
+/// always how they are delivered. Measured on macOS 26: synthesised keystrokes reach the
+/// event stream with correct modifier flags and ordinary application shortcuts act on them
+/// (⌘N opened a Finder window in the probe), but *symbolic hotkeys* — Mission Control,
+/// space switching, App Exposé — are refused no matter how the modifier is expressed.
+///
+/// So Mission Control is triggered by launching its application, and the sideways swipes
+/// map to back/forward, which is an ordinary shortcut and works. Space switching has no
+/// public route at all and is deliberately absent. See docs/ARCHITECTURE.md §5.
 public enum Shortcut: Sendable, Equatable {
     case missionControl
-    case applicationWindows
-    case spaceLeft
-    case spaceRight
+    case navigateBack
+    case navigateForward
 }
 
 /// What the recogniser decided the fingers meant.

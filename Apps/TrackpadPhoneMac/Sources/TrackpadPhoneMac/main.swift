@@ -10,6 +10,11 @@ import TrackpadMac
 /// grant to the running program's code signature. Run from a terminal and the permission
 /// belongs to the *terminal*, so it silently follows whichever one you happened to use.
 /// Signed with a stable identity, the app is granted once and stays granted.
+/// Written from the event-tap callback, which is a C function pointer and cannot
+/// capture context.
+nonisolated(unsafe) var observedKeyEvents = 0
+nonisolated(unsafe) var observedKeyDetail = ""
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let queue = DispatchQueue(label: "trackpadphone.receiver")
@@ -57,6 +62,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try receiver.start()
         } catch {
             status = .failed(error.localizedDescription)
+        }
+
+        // Lets the probe be triggered from a script, so the experiment can be run and
+        // read back without a person in the loop.
+        DistributedNotificationCenter.default().addObserver(
+            forName: .init("TrackpadPhone.probe"), object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.runModifierProbe()
         }
 
         refreshMenu()
@@ -193,6 +206,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settings.save()
         refreshMenu()
+    }
+
+    /// Fires ⌃↑ three ways and records which one the system honoured.
+    ///
+    /// Whether a symbolic hotkey accepts a synthesised modifier depends on how that
+    /// modifier is expressed, and no documentation settles it. Rather than guess and ask
+    /// someone to re-test each time, the app runs the experiment and writes the answer
+    /// down: Mission Control makes the Dock frontmost, which is observable from here.
+    private func runModifierProbe() {
+        queue.async { [weak self] in
+            guard let self, let synthesizer = self.synthesizer else { return }
+            print("--- probe start ---")
+
+            // Control case: open Mission Control the ordinary way. If the detector cannot
+            // see even this, the detector is what is broken, and every "no" below is noise.
+            let controlBefore = Self.dockWindowCount()
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Mission Control.app"))
+            usleep(1_200_000)
+            print("probe launchApp: dock windows \(controlBefore) → \(Self.dockWindowCount())")
+            synthesizer.sendEscape()
+            usleep(600_000)
+
+            let matrix: [(EventSynthesizer.ModifierStyle, CGEventTapLocation, String)] = [
+                (.flagsOnly, .cghidEventTap, "hid"),
+                (.modifierKey, .cghidEventTap, "hid"),
+                (.flagsChanged, .cghidEventTap, "hid"),
+                (.modifierKey, .cgSessionEventTap, "session"),
+                (.flagsChanged, .cgSessionEventTap, "session"),
+            ]
+
+            for (style, tap, tapName) in matrix {
+                let before = Self.dockWindowCount()
+                synthesizer.sendMissionControl(style: style, tap: tap)
+                usleep(800_000)
+                let after = Self.dockWindowCount()
+                print("probe \(style.rawValue)@\(tapName): dock windows \(before) → \(after)")
+                if after > before {
+                    synthesizer.sendEscape()
+                    usleep(600_000)
+                }
+            }
+            // Does a synthesised keystroke reach the event stream at all? If a listen-only
+            // tap sees it, the events exist and the hotkey layer is refusing them by
+            // policy, and no amount of reshaping will help. If the tap sees nothing, they
+            // are dropped before delivery, which is a different problem entirely.
+            observedKeyEvents = 0
+            observedKeyDetail = ""
+            if let tap = CGEvent.tapCreate(
+                tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
+                eventsOfInterest: CGEventMask((1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.flagsChanged.rawValue)),
+                callback: { _, _, event, _ in
+                    observedKeyEvents += 1
+                    observedKeyDetail += "[t\(event.type.rawValue) k\(event.getIntegerValueField(.keyboardEventKeycode)) f\(event.flags.rawValue)]"
+                    return Unmanaged.passUnretained(event)
+                },
+                userInfo: nil
+            ) {
+                let loop = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+                CFRunLoopAddSource(CFRunLoopGetCurrent(), loop, .commonModes)
+                CGEvent.tapEnable(tap: tap, enable: true)
+
+                synthesizer.sendSpaceLeft(style: .flagsChanged)
+                CFRunLoopRunInMode(.defaultMode, 0.6, false)
+                print("probe tap saw \(observedKeyEvents) key events \(observedKeyDetail)")
+
+                CGEvent.tapEnable(tap: tap, enable: false)
+                CFRunLoopRemoveSource(CFRunLoopGetCurrent(), loop, .commonModes)
+            } else {
+                print("probe tap: could not create event tap")
+            }
+
+            // Does an ordinary application shortcut survive synthesis, even though a
+            // system hotkey does not? Finder answers it cheaply and reversibly: ⌘N opens
+            // a window, ⌘W closes it again.
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app"))
+            usleep(700_000)
+            let finderBefore = Self.windowCount(owner: "Finder")
+            synthesizer.sendCommandKey(45)   // N
+            usleep(900_000)
+            let finderAfter = Self.windowCount(owner: "Finder")
+            print("probe app-shortcut ⌘N: finder windows \(finderBefore) → \(finderAfter)")
+            if finderAfter > finderBefore {
+                synthesizer.sendCommandKey(13)  // W
+                usleep(500_000)
+            }
+
+            print("--- probe end ---")
+        }
+    }
+
+    private static func dockWindowCount() -> Int { windowCount(owner: "Dock") }
+
+    static func windowCount(owner: String) -> Int {
+        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
+            as? [[String: Any]] else { return -1 }
+        return windows.filter { ($0[kCGWindowOwnerName as String] as? String) == owner }.count
     }
 
     @objc private func probeShortcut() {

@@ -61,7 +61,7 @@ scroll \(config.scrollGain), \
   one finger      move          ·  tap        click
   two fingers     scroll        ·  two-tap    right click
   pinch           zoom          ·  tap+drag   drag
-  three fingers   ↑ Mission Control  ↓ App Windows  ←→ spaces
+  three fingers   ↑ Mission Control  ←→ back/forward
 """)
 for address in LocalAddresses.wifi() {
     print("  enter this on the phone:  \(address)")

@@ -337,7 +337,7 @@ struct GestureTests {
         #expect(GestureRecognizer().run(stream).shortcuts == [.shortcut(.missionControl)])
     }
 
-    @Test("Three fingers sideways switch spaces, once per swipe")
+    @Test("Three fingers sideways navigate back, once per swipe")
     func threeFingerSwipeSideways() {
         var stream = TouchStreamBuilder()
         stream.place(0, xMM: 45, yMM: 75)
@@ -348,7 +348,7 @@ struct GestureTests {
         stream.liftAll()
 
         // A long swipe must not fire repeatedly as it keeps travelling.
-        #expect(GestureRecognizer().run(stream).shortcuts == [.shortcut(.spaceLeft)])
+        #expect(GestureRecognizer().run(stream).shortcuts == [.shortcut(.navigateBack)])
     }
 
     /// Landing a third finger during a scroll is ordinary. If the scroll is not closed,

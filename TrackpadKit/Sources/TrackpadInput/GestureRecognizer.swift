@@ -357,9 +357,12 @@ public final class GestureRecognizer {
             guard max(abs(delta.x), abs(delta.y)) > config.swipeThresholdMM else { return [] }
             phase = .ignoring
             if abs(delta.x) > abs(delta.y) {
-                return [.shortcut(delta.x > 0 ? .spaceRight : .spaceLeft)]
+                return [.shortcut(delta.x > 0 ? .navigateForward : .navigateBack)]
             }
-            return [.shortcut(delta.y < 0 ? .missionControl : .applicationWindows)]
+            // Downwards has no counterpart: App Exposé is a symbolic hotkey and the system
+            // will not accept a synthesised one.
+            guard delta.y < 0 else { return [] }
+            return [.shortcut(.missionControl)]
 
         case .ignoring:
             return []
