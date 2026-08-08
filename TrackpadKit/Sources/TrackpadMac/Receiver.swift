@@ -51,6 +51,8 @@ public final class Receiver: @unchecked Sendable {
     private var channel: SecureChannel?
     private var pairingRequired = false
     private var lastRefusalLoggedMs: Double = -.infinity
+    /// Whether the phone we are talking to speaks sealed. See `wrap`.
+    private var peerIsSealed = false
 
     /// Bonjour instance name, so the phone can tell one Mac from another and find it again
     /// after its address changes. The pairing code carries the same name.
@@ -146,6 +148,10 @@ public final class Receiver: @unchecked Sendable {
         case .hello(let hello):
             replyTo = connection
             session.handle(hello)
+            // The phone repeats `hello` every couple of seconds, so answering it is also
+            // the heartbeat: this is the only thing that tells the phone the Mac is there
+            // at all, and a phone that knows the difference can reconnect on its own.
+            connection.send(content: wrap(.alive), completion: .idempotent)
 
         case .touchFrame(let frame):
             replyTo = connection
@@ -154,7 +160,7 @@ public final class Receiver: @unchecked Sendable {
         case .keyInput(let key):
             session.handle(key)
 
-        case .feedback:
+        case .feedback, .alive:
             break  // Mac never receives these.
         }
     }
@@ -167,7 +173,9 @@ public final class Receiver: @unchecked Sendable {
     private func open(_ data: Data) -> Packet? {
         if let channel {
             do {
-                return try channel.open(data)
+                let packet = try channel.open(data)
+                peerIsSealed = true
+                return packet
             } catch ChannelError.notSealed {
                 // An unpaired phone. The rule below decides whether to hear it.
             } catch {
@@ -183,13 +191,18 @@ public final class Receiver: @unchecked Sendable {
             }
         }
         guard !pairingRequired else { return nil }
-        return try? Packet.decode(data)
+        guard let packet = try? Packet.decode(data) else { return nil }
+        peerIsSealed = false
+        return packet
     }
 
-    /// Seals a reply when there is a channel, and sends it plainly when there is not — so
-    /// haptics keep working through the changeover in both directions.
+    /// Answers in whatever form the question came in.
+    ///
+    /// Sealing a reply to a phone that cannot open it would be a silent one-way link — and
+    /// during the changeover that phone is the one still doing the work.
     private func wrap(_ packet: Packet) -> Data {
-        channel.map { $0.seal(packet) } ?? packet.encode()
+        guard peerIsSealed, let channel else { return packet.encode() }
+        return channel.seal(packet)
     }
 
     private static func nowMs() -> Double {

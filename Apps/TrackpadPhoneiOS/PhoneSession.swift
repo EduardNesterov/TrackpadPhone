@@ -28,6 +28,29 @@ final class PhoneSession {
     private(set) var pairedName: String?
     var isPaired: Bool { pairedName != nil }
 
+    /// Whether the Mac has said anything lately.
+    ///
+    /// Not the same question as `state`, and the difference is the whole point: UDP has no
+    /// session, so a socket reports itself ready whether or not anything is listening at the
+    /// far end — doubly so on the fallback path, where the address is one we were told about
+    /// once and nobody has confirmed since. `state` says a socket is open. This says the Mac
+    /// is there. Only the second one is worth a green dot.
+    private(set) var isLive = false
+
+    /// When the Mac last answered. Every packet from it counts, but in practice it is the
+    /// answer to `hello`, twice a second's worth of silence apart.
+    private var lastHeardAt: Date?
+    private var lastAttemptAt = Date.distantPast
+    private var watchdog: Timer?
+
+    /// Silence this long means the link is gone, whatever the socket believes. Three missed
+    /// answers: long enough to ride out one lost packet and a slow moment, short enough that
+    /// a hand reaching for the trackpad finds it already reconnected.
+    private static let silenceMeansGone: TimeInterval = 6
+    /// And how often to try again while it stays gone. Cheap — a few packets — but no point
+    /// hammering a Mac that is switched off.
+    private static let retryEvery: TimeInterval = 5
+
     /// Persisted so the choice survives a relaunch; haptics are polarising enough to be
     /// worth a switch rather than a decision made for the user.
     var hapticsEnabled: Bool {
@@ -85,6 +108,29 @@ final class PhoneSession {
         // Starting the engine up front matters: the first pattern on a cold engine is
         // late by tens of milliseconds, which is exactly the click you most want to feel.
         haptics.start()
+        startWatchdog()
+    }
+
+    /// Reconnects when the link has gone quiet, and keeps `isLive` honest.
+    ///
+    /// This is what makes pairing a one-time thing rather than something to redo whenever
+    /// the app has been in the background. iOS tears the connection down while the app is
+    /// suspended and nothing brings it back on its own; before this, re-scanning the code
+    /// was the shortest route back — which is why pairing looked like it kept falling off.
+    private func startWatchdog() {
+        watchdog?.invalidate()
+        watchdog = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkTheLinkIsAlive() }
+        }
+    }
+
+    private func checkTheLinkIsAlive() {
+        let silence = lastHeardAt.map { Date().timeIntervalSince($0) } ?? .infinity
+        isLive = silence < Self.silenceMeansGone
+
+        guard isPaired, !isLive else { return }
+        guard Date().timeIntervalSince(lastAttemptAt) >= Self.retryEvery else { return }
+        connect()
     }
 
     private func nowMicroseconds() -> UInt32 {
@@ -117,6 +163,11 @@ final class PhoneSession {
 
     func connect() {
         disconnect()
+        lastAttemptAt = Date()
+        // Cleared rather than kept: an old answer must not make a fresh connection look
+        // alive before the Mac has said anything through it.
+        lastHeardAt = nil
+        isLive = false
         guard let secret = pairing.load(), let name = pairedName else {
             state = .failed("скануй код на Mac")
             return
@@ -284,7 +335,11 @@ final class PhoneSession {
     }
 
     private func handle(_ data: Data) {
-        guard let channel, case .feedback(let feedback) = try? channel.open(data) else { return }
-        haptics.play(feedback)
+        guard let channel, let packet = try? channel.open(data) else { return }
+        // Anything at all from the Mac is proof it is there; it cannot be forged, because
+        // it came through the sealed channel.
+        lastHeardAt = Date()
+        isLive = true
+        if case .feedback(let feedback) = packet { haptics.play(feedback) }
     }
 }

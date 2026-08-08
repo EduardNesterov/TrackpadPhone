@@ -10,6 +10,7 @@ import Foundation
 ///     hello       + u32 sessionID, f32 widthMM, f32 heightMM, u8 maxContacts
 ///     keyInput    + u16 keyCode, u8 modifiers, u8 textLength, textLength × u8 (UTF-8)
 ///     feedback    + u8 kind, u8 intensity
+///     alive       — nothing but the header
 ///
 /// A 5-finger frame is 50 bytes, so frames never fragment.
 public enum Packet: Sendable, Equatable {
@@ -17,12 +18,21 @@ public enum Packet: Sendable, Equatable {
     case hello(Hello)
     case keyInput(KeyInput)
     case feedback(Feedback)
+    /// Mac → phone, in answer to `hello`.
+    ///
+    /// The only thing the phone can hear that proves the Mac is there. UDP has no session:
+    /// a socket is "ready" whether or not anything is listening, so without an answer the
+    /// phone's own indicator is only ever reporting that it managed to open a socket. Sent
+    /// once per `hello`, which is every two seconds — not per frame, which is what the old
+    /// echo did and what made it worth deleting.
+    case alive
 
     enum WireType: UInt8 {
         case touchFrame = 0x01
         case hello = 0x02
         case keyInput = 0x03
         case feedback = 0x11
+        case alive = 0x12
     }
 }
 
@@ -99,6 +109,9 @@ public extension Packet {
             w.u8(WireType.feedback.rawValue)
             w.u8(feedback.kind.rawValue)
             w.u8(feedback.intensity)
+
+        case .alive:
+            w.u8(WireType.alive.rawValue)
         }
 
         return w.data
@@ -166,6 +179,9 @@ public extension Packet {
             // An unknown kind is not worth dropping the packet over: something happened
             // that deserves a buzz, and a plain click is the harmless reading.
             return .feedback(Feedback(kind: FeedbackKind(rawValue: rawKind) ?? .click, intensity: intensity))
+
+        case .alive:
+            return .alive
         }
     }
 }

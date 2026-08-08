@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var showSettings = true
     @State private var showKeyboard = false
     @State private var showScanner = false
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Height left for the trackpad when the keyboard is up. Enough to nudge the cursor
     /// and reach a menu without dismissing anything — the keyboard takes the rest, which
@@ -52,13 +53,28 @@ struct ContentView: View {
             }
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
-        .onChange(of: session.state) { _, state in
-            // Get out of the way as soon as the link is up, and come back if it drops.
-            switch state {
-            case .connected: showSettings = false
-            case .failed: showSettings = true
-            default: break
+        // Coming back from the background is a fresh start for the link: iOS takes the
+        // connection away while the app is suspended, and `onAppear` does not fire a second
+        // time. Without this the trackpad comes back dead and looks unpaired.
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                if session.isPaired, !session.isLive { session.connect() }
+            case .background:
+                session.disconnect()
+            default:
+                break
             }
+        }
+        // Out of the way when the Mac actually answers — not merely when a socket opened,
+        // which is all `state` can tell us and would hide the panel over a dead link.
+        .onChange(of: session.isLive) { _, live in
+            if live { showSettings = false }
+        }
+        .onChange(of: session.state) { _, state in
+            // A link that merely went quiet is the watchdog's business and is fixed without
+            // anyone being told. Only a refusal is worth the user's attention.
+            if case .failed = state { showSettings = true }
         }
     }
 
@@ -168,7 +184,7 @@ struct ContentView: View {
             Color.black.opacity(0.75)
                 .ignoresSafeArea()
                 .onTapGesture {
-                    if session.state == .connected { showSettings = false }
+                    if session.isLive { showSettings = false }
                 }
 
             VStack(spacing: 14) {
@@ -198,7 +214,7 @@ struct ContentView: View {
                             .buttonStyle(.borderedProminent)
                     }
 
-                    if session.state == .connected {
+                    if session.isLive {
                         Button("Готово") { showSettings = false }
                     }
                 }
@@ -237,8 +253,9 @@ struct ContentView: View {
     }
 
     private var statusColor: Color {
+        // Green means the Mac answered, not that a socket opened. See `isLive`.
         switch session.state {
-        case .connected: .green
+        case .connected: session.isLive ? .green : .yellow
         case .connecting: .yellow
         case .failed: .red
         case .idle: .gray
@@ -249,7 +266,8 @@ struct ContentView: View {
         switch session.state {
         case .idle: "не підключено"
         case .connecting: "підключення…"
-        case .connected: "підключено · \(session.pairedName ?? "")"
+        case .connected where session.isLive: "підключено · \(session.pairedName ?? "")"
+        case .connected: "шукаю \(session.pairedName ?? "Mac")…"
         case .failed(let message): message
         }
     }

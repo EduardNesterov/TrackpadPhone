@@ -277,4 +277,12 @@ struct SequenceNumberTests {
             previous = next
         }
     }
+
+    @Test("The Mac's answer to hello survives the wire")
+    func aliveRoundTrips() throws {
+        #expect(try Packet.decode(Packet.alive.encode()) == .alive)
+        // Two bytes and no more: it is sent every couple of seconds for as long as the
+        // phone is connected, and it says one thing.
+        #expect(Packet.alive.encode().count == 2)
+    }
 }
