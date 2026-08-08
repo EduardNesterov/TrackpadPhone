@@ -30,6 +30,10 @@ Once, on the iPhone: **Settings → Privacy & Security → Developer Mode → on
 the phone when it asks. The switch only appears after a Mac has tried to install something,
 so if you cannot find it, do the next step first and come back.
 
+**Add your Apple ID to Xcode first** — open Xcode, then Settings (⌘,) → Accounts → “+” →
+Apple ID, and sign in. Nothing can install an app on an iPhone without this; it is Apple's
+rule, not this project's. A free Apple ID is enough.
+
 Plug the phone in, unlock it, tap **Trust** if asked, then from the same Terminal:
 
 ```sh
@@ -42,8 +46,12 @@ The script notices whose Mac it is running on: the project carries its author's 
 and app identifier, and neither of those can be reused by anybody else, so on your machine
 it quietly builds under your own. You do not have to change anything in Xcode.
 
-If it says no Apple Development certificate was found, open Xcode → Settings → Accounts,
-add your Apple ID, and run the script again. That is the one thing it cannot do for you.
+If signing fails, the message comes from Xcode and names the real problem. The usual one is
+the Apple ID above. If you would rather do it by hand: open `TrackpadPhone.xcodeproj`,
+select the **TrackpadPhoneiOS** target → *Signing & Capabilities*, pick your account under
+*Team*, change *Bundle Identifier* to something of your own (anything, e.g.
+`com.yourname.trackpadphone`), and press ▶. That path always works and shows you exactly
+what it is unhappy about.
 
 If the install ends in a *transport error*, the phone's connection dropped — unlock it,
 leave it on, and run the script again. It is safe to run any number of times.

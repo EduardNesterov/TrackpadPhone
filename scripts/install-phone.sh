@@ -60,9 +60,30 @@ name="$(echo "$device" | cut -f2)"
 # "No Account for Team", which points somewhere else again.
 project_team="$(grep -m1 'DEVELOPMENT_TEAM = ' "$root/TrackpadPhone.xcodeproj/project.pbxproj" \
     | sed 's/.*= *//; s/;.*//')"
-local_team="$(security find-certificate -c "Apple Development" -p 2>/dev/null \
-    | openssl x509 -noout -subject 2>/dev/null \
-    | tr ',/' '\n\n' | sed -n 's/^OU=//p' | head -1)"
+
+# Every signing identity on this Mac, and the team each one belongs to.
+#
+# Not `security find-certificate -c "Apple Development"`: that matches one exact name, and
+# the name depends on what kind of account was added and when Apple last renamed the
+# certificates. Asking the identity list instead means anything that can actually sign is
+# found, whatever it is called.
+local_team="$(python3 <<'PYTHON'
+import re, subprocess
+
+def run(cmd, stdin=None):
+    return subprocess.run(cmd, input=stdin, capture_output=True, text=True).stdout
+
+listed = run(["security", "find-identity", "-v", "-p", "codesigning"])
+teams = []
+for name in re.findall(r'"([^"]+)"', listed):
+    pem = run(["security", "find-certificate", "-c", name, "-p"])
+    subject = run(["openssl", "x509", "-noout", "-subject"], stdin=pem)
+    found = re.search(r"OU\s*=\s*([A-Z0-9]{8,12})", subject)
+    if found:
+        teams.append(found.group(1))
+print(teams[0] if teams else "")
+PYTHON
+)"
 
 # macOS still ships bash 3.2, where expanding an empty array under `set -u` is an error
 # rather than nothing — hence the guard at the use site below.
@@ -75,9 +96,12 @@ if [ -n "$local_team" ] && [ "$local_team" != "$project_team" ]; then
     overrides=(DEVELOPMENT_TEAM="$local_team" PRODUCT_BUNDLE_IDENTIFIER="$own_id")
     echo "==> your team is $local_team, so building as $own_id"
 elif [ -z "$local_team" ]; then
-    echo "No Apple Development certificate found."
-    echo "Open Xcode → Settings → Accounts, add your Apple ID, then run this again."
-    exit 1
+    # No team found. Rather than guessing why, hand the job to Xcode with the author's team
+    # cleared out of the way: its own error message names the real problem, and a guess
+    # here would send somebody looking in the wrong place. Which it did.
+    echo "==> no signing team found on this Mac; letting Xcode try to sort it out"
+    echo "    if this fails, add your Apple ID: Xcode → Settings → Accounts → +"
+    overrides=(DEVELOPMENT_TEAM="" PRODUCT_BUNDLE_IDENTIFIER="com.$(id -un | tr -cd '[:alnum:]').trackpadphone")
 fi
 
 echo "==> building for $name"
