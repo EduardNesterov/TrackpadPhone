@@ -38,6 +38,16 @@ public final class Receiver: @unchecked Sendable {
         queue.async { self.pairingRequired = required }
     }
 
+    /// Turns the per-event log on and off while running.
+    ///
+    /// Through the queue because that is where the session is read from, and off by default
+    /// because it is not free: a line per recognised event is a synchronous write about a
+    /// hundred and twenty times a second, and everything behind it in the queue waits for
+    /// the filesystem. Wanted while hunting a gesture, paid for the rest of the time.
+    public func setDebugLogging(_ enabled: Bool) {
+        queue.async { self.session.debug = enabled }
+    }
+
     private var channel: SecureChannel?
     private var pairingRequired = false
     private var lastRefusalLoggedMs: Double = -.infinity
@@ -68,8 +78,21 @@ public final class Receiver: @unchecked Sendable {
 
         let params = NWParameters.udp
         params.allowLocalEndpointReuse = true
-        // Enables AWDL, so this works over direct peer-to-peer Wi-Fi with no router.
-        params.includePeerToPeer = true
+        // Peer-to-peer deliberately *off*, and it costs a feature nobody used to buy back
+        // one that everybody feels.
+        //
+        // Turning it on makes the Mac an active participant in AWDL, and an active AWDL
+        // participant time-shares the Wi-Fi radio: the chip leaves the router's channel for
+        // the peer-to-peer ones and comes back, roughly once a beacon interval. Nothing is
+        // lost — the frames queue while it is away and arrive in a burst — but the pointer
+        // freezes for that whole absence. Measured: the phone's own clock showed gaps of no
+        // more than 25 ms while the Mac saw 90 to 100 ms, once or twice a second, which is
+        // exactly what "the cursor moves in jerks" is.
+        //
+        // What it gives up is working with no router at all, phone straight to Mac. That
+        // has never been used here: both ends are on the same network, and Bonjour
+        // advertising works over it without any of this.
+        params.includePeerToPeer = false
 
         let listener = try NWListener(using: params, on: port)
         // Advertised rather than left to be typed: the Mac's address is the router's to
@@ -209,12 +232,23 @@ public final class Receiver: @unchecked Sendable {
             self.session.endDragIfPhoneWentAway(nowMs: Receiver.nowMs())
             let stats = self.session.drainStats()
             guard self.logsStatistics, stats.frames > 0 else { return }
-            let gaps = stats.interArrivalMs.sorted()
-            let p50 = gaps.isEmpty ? 0 : gaps[gaps.count / 2]
-            let p95 = gaps.isEmpty ? 0 : gaps[min(gaps.count - 1, Int(Double(gaps.count) * 0.95))]
+            func percentile(_ values: [Double], _ fraction: Double) -> Double {
+                guard !values.isEmpty else { return 0 }
+                let sorted = values.sorted()
+                return sorted[min(sorted.count - 1, Int(Double(sorted.count) * fraction))]
+            }
+            // p99 as well as p95, because a stall that happens twice a second is under two
+            // per cent of the frames — invisible at p95, and the whole of what the hand
+            // feels. Sensor beside arrival, so a stall names its own culprit.
             print(String(
-                format: "%4d fps   gap p50 %5.1f ms   p95 %5.1f ms   lost %d   discarded %d",
-                stats.frames, p50, p95, stats.lost, stats.discarded
+                format: "%4d fps   arrival p50 %5.1f  p95 %5.1f  p99 %6.1f   sensor p50 %5.1f  p99 %6.1f   lost %d   discarded %d",
+                stats.frames,
+                percentile(stats.interArrivalMs, 0.5),
+                percentile(stats.interArrivalMs, 0.95),
+                percentile(stats.interArrivalMs, 0.99),
+                percentile(stats.sensorGapMs, 0.5),
+                percentile(stats.sensorGapMs, 0.99),
+                stats.lost, stats.discarded
             ))
         }
         timer.resume()

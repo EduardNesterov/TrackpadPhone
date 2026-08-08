@@ -14,6 +14,7 @@ public final class Session {
     private var sessionID: UInt32?
     private var lastSeq: UInt16?
     private var lastArrivalMs: Double?
+    private var lastFrameSensorUs: UInt32?
 
     public private(set) var stats = Stats()
 
@@ -25,6 +26,13 @@ public final class Session {
         /// says something about the network, and it must not be mixed with the above.
         var lost = 0
         var interArrivalMs: [Double] = []
+        /// The same gaps as the phone measured them, from its own clock on the frame.
+        ///
+        /// The pair is the instrument: when the pointer stalls, this says which end stalled.
+        /// A gap the phone also recorded means the phone never produced the frames — the
+        /// app or UIKit was busy. A gap only the arrival shows means the frames existed and
+        /// the radio sat on them. Guessing between those two costs hours.
+        var sensorGapMs: [Double] = []
     }
 
     /// Prints the contact count on every change plus each recognised event. The first
@@ -94,6 +102,12 @@ public final class Session {
             if gap < 500 { stats.interArrivalMs.append(gap) }
         }
         lastArrivalMs = arrivedAtMs
+
+        if let previous = lastFrameSensorUs {
+            let gap = Double(frame.tSensorUs &- previous) / 1000
+            if gap < 500 { stats.sensorGapMs.append(gap) }
+        }
+        lastFrameSensorUs = frame.tSensorUs
 
         if debug, frame.contacts.count != lastContactCount {
             lastContactCount = frame.contacts.count

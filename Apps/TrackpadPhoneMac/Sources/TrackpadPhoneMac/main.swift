@@ -60,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         recognizer = GestureRecognizer(config: config)
         let session = Session(recognizer: recognizer, synthesizer: synthesizer)
-        session.debug = true
+        session.debug = settings.debugLog
 
         receiver = Receiver(session: session, port: 51888, queue: queue)
         receiver.logsStatistics = true
@@ -204,6 +204,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(disabled(settings.requirePairing
             ? "   порт закритий для всіх інших"
             : "   доки вимкнено — друкувати може будь-хто в мережі"))
+
+        let debugItem = NSMenuItem(
+            title: "Журнал подій (для налагодження)",
+            action: #selector(toggleDebugLog),
+            keyEquivalent: ""
+        )
+        debugItem.target = self
+        debugItem.state = settings.debugLog ? .on : .off
+        menu.addItem(debugItem)
+        if settings.debugLog {
+            menu.addItem(disabled("   пише кожну подію — курсор може смикатись"))
+        }
 
         let renew = NSMenuItem(
             title: "Створити новий код",
@@ -365,6 +377,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.requirePairing.toggle()
         settings.save()
         receiver?.setRequiresPairing(settings.requirePairing)
+        refreshMenu()
+    }
+
+    /// The log costs a synchronous write per event, which is a hundred and twenty a second
+    /// while a finger moves. Useful when a gesture misbehaves, and a tax the rest of the
+    /// time — the receiver's queue waits behind every one of those writes.
+    @objc private func toggleDebugLog() {
+        settings.debugLog.toggle()
+        settings.save()
+        receiver?.setDebugLogging(settings.debugLog)
         refreshMenu()
     }
 
@@ -545,6 +567,8 @@ struct Settings {
     /// Whether an unpaired phone is refused. See `toggleRequirePairing` for why this starts
     /// off rather than on.
     var requirePairing = false
+    /// Per-event logging. Off by default: see `toggleDebugLog`.
+    var debugLog = false
     /// What the phone sees in the list and in the pairing code.
     var serviceName: String = Host.current().localizedName ?? "Mac"
     var hasPromptedForAccessibility = false
@@ -576,6 +600,7 @@ struct Settings {
             settings.zoomSpeed = defaults.double(forKey: "zoomSpeed")
         }
         settings.requirePairing = defaults.bool(forKey: "requirePairing")
+        settings.debugLog = defaults.bool(forKey: "debugLog")
         if let name = defaults.string(forKey: "serviceName"), !name.isEmpty {
             settings.serviceName = name
         }
@@ -592,6 +617,7 @@ struct Settings {
         defaults.set(edgePushSpeed, forKey: "edgePushSpeed")
         defaults.set(zoomSpeed, forKey: "zoomSpeed")
         defaults.set(requirePairing, forKey: "requirePairing")
+        defaults.set(debugLog, forKey: "debugLog")
         defaults.set(serviceName, forKey: "serviceName")
         defaults.set(hasPromptedForAccessibility, forKey: "hasPromptedForAccessibility")
     }
