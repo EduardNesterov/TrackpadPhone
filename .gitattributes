@@ -1,0 +1,3 @@
+
+# so a copy handed to someone else can say which one it is
+scripts/*.sh export-subst

@@ -15,6 +15,14 @@
 
 set -euo pipefail
 
+# Substituted by `git archive`, so a copy that has been handed on knows its own version.
+# In the working tree it stays a literal placeholder, which is the honest answer there.
+version='$Format:%h, %cs$'
+case "$version" in
+    \$Format*) version="working copy" ;;
+esac
+echo "TrackpadPhone install ($version)"
+
 root="$(cd "$(dirname "$0")/.." && pwd)"
 derived="$root/.build-ios"
 
