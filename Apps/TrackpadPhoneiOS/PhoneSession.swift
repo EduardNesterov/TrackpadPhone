@@ -169,7 +169,7 @@ final class PhoneSession {
         lastHeardAt = nil
         isLive = false
         guard let secret = pairing.load(), let name = pairedName else {
-            state = .failed("скануй код на Mac")
+            state = .failed("scan the code on your Mac")
             return
         }
         channel = SecureChannel(secret: secret, role: .phone)

@@ -132,31 +132,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !isTrusted(prompting: false) {
             menu.addItem(.separator())
             let item = NSMenuItem(
-                title: "Дозволити керування комп’ютером…",
+                title: "Allow control of this Mac…",
                 action: #selector(openAccessibilitySettings),
                 keyEquivalent: ""
             )
             item.target = self
             menu.addItem(item)
-            menu.addItem(disabled("   без цього курсор не рухатиметься"))
+            menu.addItem(disabled("   without it the pointer will not move"))
         }
 
         menu.addItem(.separator())
         menu.addItem(slider(
-            "Швидкість курсора", value: settings.sensitivity,
+            "Pointer speed", value: settings.sensitivity,
             range: 0.4 ... 3.0, action: #selector(sensitivityChanged)
         ))
         menu.addItem(slider(
-            "Швидкість прокрутки", value: settings.scrollGain,
+            "Scroll speed", value: settings.scrollGain,
             range: 4 ... 48, action: #selector(scrollGainChanged)
         ))
         menu.addItem(slider(
-            "Швидкість зуму (щипок)", value: settings.zoomSpeed,
+            "Zoom speed (pinch)", value: settings.zoomSpeed,
             range: 0.5 ... 3.0, action: #selector(zoomSpeedChanged)
         ))
 
         let invert = NSMenuItem(
-            title: "Зворотний напрям прокрутки",
+            title: "Reverse scroll direction",
             action: #selector(toggleScrollDirection),
             keyEquivalent: ""
         )
@@ -165,28 +165,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(invert)
 
         let drag = NSMenuItem(
-            title: "Перетягування трьома пальцями",
+            title: "Three-finger drag",
             action: #selector(toggleThreeFingerDrag),
             keyEquivalent: ""
         )
         drag.target = self
         drag.state = settings.threeFingerDrag ? .on : .off
         menu.addItem(drag)
-        menu.addItem(disabled(settings.threeFingerDrag ? "   свайпи — чотирма" : "   свайпи — трьома"))
+        menu.addItem(disabled(settings.threeFingerDrag ? "   swipes take four fingers" : "   swipes take three fingers"))
 
         if settings.threeFingerDrag {
             menu.addItem(slider(
-                "Автопрокрутка біля краю", value: settings.edgePushSpeed,
+                "Edge autoscroll", value: settings.edgePushSpeed,
                 range: 0 ... 80, action: #selector(edgePushSpeedChanged)
             ))
             menu.addItem(disabled(settings.edgePushSpeed < 1
-                ? "   вимкнено"
-                : "   тягнеш до краю — їде далі само й розганяється"))
+                ? "   off"
+                : "   drag into the edge and it carries on, faster the longer you hold"))
         }
 
         menu.addItem(.separator())
         let pair = NSMenuItem(
-            title: "Показати код для телефона…",
+            title: "Show pairing code…",
             action: #selector(showPairingCode),
             keyEquivalent: ""
         )
@@ -194,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(pair)
 
         let require = NSMenuItem(
-            title: "Приймати лише спарений телефон",
+            title: "Accept only the paired phone",
             action: #selector(toggleRequirePairing),
             keyEquivalent: ""
         )
@@ -202,11 +202,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         require.state = settings.requirePairing ? .on : .off
         menu.addItem(require)
         menu.addItem(disabled(settings.requirePairing
-            ? "   порт закритий для всіх інших"
-            : "   доки вимкнено — друкувати може будь-хто в мережі"))
+            ? "   the port answers to nobody else"
+            : "   while this is off, anyone on the network can type"))
 
         let debugItem = NSMenuItem(
-            title: "Журнал подій (для налагодження)",
+            title: "Event log (for debugging)",
             action: #selector(toggleDebugLog),
             keyEquivalent: ""
         )
@@ -214,11 +214,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         debugItem.state = settings.debugLog ? .on : .off
         menu.addItem(debugItem)
         if settings.debugLog {
-            menu.addItem(disabled("   пише кожну подію — курсор може смикатись"))
+            menu.addItem(disabled("   writes every event; can make the pointer stutter"))
         }
 
         let renew = NSMenuItem(
-            title: "Створити новий код",
+            title: "Create a new code",
             action: #selector(renewPairingSecret),
             keyEquivalent: ""
         )
@@ -230,7 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the request. Being already running is the only way "press Connect and it works"
         // can be true, so this is the setting that actually answers that wish.
         let launch = NSMenuItem(
-            title: "Запускати при вході в систему",
+            title: "Start at login",
             action: #selector(toggleLaunchAtLogin),
             keyEquivalent: ""
         )
@@ -246,7 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // this separates a shortcut that never reaches the system from a gesture that was
         // never recognised — two very different bugs that look identical from the outside.
         let probe = NSMenuItem(
-            title: "Перевірити ⌃↑ (Mission Control)",
+            title: "Test ⌃↑ (Mission Control)",
             action: #selector(probeShortcut),
             keyEquivalent: ""
         )
@@ -254,7 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(probe)
 
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Вийти", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
 
         statusItem.menu = menu
@@ -262,10 +262,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusTitle: String {
         switch status {
-        case .starting: "Запуск…"
-        case .listening: "Очікую телефон"
-        case .connected: "Підключено"
-        case .failed(let message): "Помилка: \(message)"
+        case .starting: "Starting…"
+        case .listening: "Waiting for a phone"
+        case .connected: "Connected"
+        case .failed(let message): "Error: \(message)"
         }
     }
 
@@ -418,7 +418,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try service.register()
             }
         } catch {
-            launchAtLoginNote = "не вдалося: \(error.localizedDescription)"
+            launchAtLoginNote = "failed: \(error.localizedDescription)"
             print("launch at login: \(error)")
         }
         refreshMenu()

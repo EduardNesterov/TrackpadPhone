@@ -26,6 +26,8 @@ struct CustomKeyboard: View {
     @State private var typedWord = ""
     /// The *tails* of the current completions, not the whole words: what tapping one sends.
     @State private var completions: [String] = []
+    /// Runs while backspace is held down. See `holdToDelete`.
+    @State private var deleting: Task<Void, Never>?
 
     private var layout: KeyboardLayout {
         showingSymbols ? .symbols : KeyboardLayout.letterLayouts[layoutIndex]
@@ -167,18 +169,74 @@ struct CustomKeyboard: View {
     private func keyButton(_ key: Key) -> some View {
         if case .spacer = key.action {
             Color.clear
+        } else if case .backspace = key.action {
+            // Not a Button: a button only knows that it was pressed, and this key has to
+            // know for how long. A zero-distance drag is the standard way to get the
+            // touch-down and the lift as separate moments.
+            keyFace(key)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in if deleting == nil { holdToDelete() } }
+                        .onEnded { _ in stopDeleting() }
+                )
         } else {
             Button {
                 press(key)
             } label: {
-                Text(key.label)
-                    .font(.system(size: key.label.count > 2 ? 15 : 21, weight: .regular))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(background(for: key), in: RoundedRectangle(cornerRadius: 8))
+                keyFace(key)
             }
             .buttonStyle(.plain)
         }
+    }
+
+    private func keyFace(_ key: Key) -> some View {
+        Text(key.label)
+            .font(.system(size: key.label.count > 2 ? 15 : 21, weight: .regular))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(background(for: key), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: Deleting
+
+    /// Backspace the way iOS does it: one character on the tap, then a run of them while
+    /// the finger stays down, and whole words once the hand has clearly settled in.
+    ///
+    /// The word stage is what makes holding it down worth anything — a run of characters at
+    /// ten a second still takes an age to clear a sentence. On the Mac a word is ⌥⌫, so
+    /// nothing here has to know where the previous space is; the text field does.
+    private func holdToDelete() {
+        deleteOnce(word: false)
+        deleting = Task { @MainActor in
+            // The pause before repeating starts. Without it every ordinary tap would fire
+            // twice, because a tap is a press that happens to be short.
+            try? await Task.sleep(for: .milliseconds(450))
+            var held = 0.45
+            while !Task.isCancelled {
+                let word = held > 2.0
+                deleteOnce(word: word)
+                let step = word ? 0.16 : 0.09
+                try? await Task.sleep(for: .seconds(step))
+                held += step
+            }
+        }
+    }
+
+    private func deleteOnce(word: Bool) {
+        send(KeyInput(keyCode: 51, modifiers: word ? [.option] : modifiers))
+        if word {
+            typedWord = ""
+        } else {
+            typedWord = String(typedWord.dropLast())
+        }
+        refreshCompletions()
+        if !word { modifiers = [] }
+    }
+
+    private func stopDeleting() {
+        deleting?.cancel()
+        deleting = nil
     }
 
     private func background(for key: Key) -> Color {
@@ -221,10 +279,7 @@ struct CustomKeyboard: View {
             modifiers = []
 
         case .backspace:
-            send(KeyInput(keyCode: 51, modifiers: modifiers))
-            typedWord = String(typedWord.dropLast())
-            refreshCompletions()
-            modifiers = []
+            break   // handled by press-and-hold; see `holdToDelete`
 
         case .modifier(let modifier):
             // Sticky: a touch screen has no way to hold a key down while pressing another,

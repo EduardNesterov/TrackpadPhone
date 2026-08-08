@@ -18,10 +18,6 @@ struct ContentView: View {
     /// using.
     private let trackpadStripHeight: Double = 56
 
-    /// The close button only acts on a second tap; this is the moment in between.
-    @State private var closeArmed = false
-    @State private var disarmTask: Task<Void, Never>?
-
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.black.ignoresSafeArea()
@@ -31,7 +27,6 @@ struct ContentView: View {
             // It alone keeps the safe area — in landscape the physical top-left corner is
             // behind the Dynamic Island.
             revealButton
-            closeButton
             if showKeyboard { keyboard }
             if showSettings { settingsPanel }
         }
@@ -95,73 +90,39 @@ struct ContentView: View {
         .allowsHitTesting(!showSettings)
     }
 
+    /// The two buttons that live on top of the trackpad.
+    ///
+    /// Their target is deliberately larger than they look. A miss here does not do nothing —
+    /// it lands on the surface underneath and clicks on the Mac, which is the most annoying
+    /// failure a button can have. So the visible circle stays small and unobtrusive while
+    /// `contentShape` hands each one a 56-point square to be hit in; the extra area costs
+    /// nothing, because the strip along the top edge is not where anyone aims the cursor.
     private var revealButton: some View {
-        HStack(spacing: 8) {
-            Button {
-                showSettings = true
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(statusColor)
-                    .frame(width: 34, height: 34)
-                    .background(Color(white: 0.16), in: Circle())
-            }
-            .allowsHitTesting(!showSettings)
+        HStack(spacing: 4) {
+            circleButton(
+                icon: "slider.horizontal.3", tint: statusColor
+            ) { showSettings = true }
 
-            Button {
-                showKeyboard.toggle()
-            } label: {
-                Image(systemName: showKeyboard ? "keyboard.chevron.compact.down" : "keyboard")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
-                    .background(Color(white: 0.16), in: Circle())
-            }
-            .allowsHitTesting(!showSettings)
+            circleButton(
+                icon: showKeyboard ? "keyboard.chevron.compact.down" : "keyboard", tint: .white
+            ) { showKeyboard.toggle() }
         }
         .opacity(showSettings ? 0 : 0.55)
-        .padding(.leading, 14)
-        .padding(.top, 10)
+        .padding(.leading, 6)
     }
 
-    /// Leaving the app on purpose.
-    ///
-    /// Swiping up is deliberately made awkward — `defersSystemGestures` costs a swipe, and
-    /// that is as far as iOS lets an app go; the home gesture cannot be taken away. So
-    /// there has to be a way out that is meant, and this is it: the first tap only arms the
-    /// button, the second closes. One stray touch in the corner does nothing, which matters
-    /// because that corner is inside the trackpad.
-    private var closeButton: some View {
-        VStack {
-            Spacer()
-            HStack {
-                Spacer()
-                Button {
-                    if closeArmed {
-                        session.disconnect()
-                        exit(0)
-                    } else {
-                        closeArmed = true
-                        disarmTask?.cancel()
-                        disarmTask = Task {
-                            try? await Task.sleep(for: .seconds(3))
-                            if !Task.isCancelled { closeArmed = false }
-                        }
-                    }
-                } label: {
-                    Image(systemName: closeArmed ? "power.circle.fill" : "xmark")
-                        .font(.system(size: closeArmed ? 21 : 14, weight: .semibold))
-                        .foregroundStyle(closeArmed ? Color.red : Color.white)
-                        .frame(width: 40, height: 40)
-                        .background(Color(white: closeArmed ? 0.22 : 0.14), in: Circle())
-                }
-                .opacity(showSettings ? 0 : (closeArmed ? 1 : 0.35))
-                .animation(.easeOut(duration: 0.15), value: closeArmed)
-                .allowsHitTesting(!showSettings)
-                .padding(.trailing, 12)
-                .padding(.bottom, 6)
-            }
+    private func circleButton(icon: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(Color(white: 0.16), in: Circle())
+                .frame(width: 56, height: 56)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .allowsHitTesting(!showSettings)
     }
 
     /// Deliberately *not* ignoring the horizontal safe area: in landscape the Dynamic
@@ -194,7 +155,7 @@ struct ContentView: View {
                     Spacer(minLength: 12)
 
                     if session.isPaired {
-                        Button(session.state == .connected ? "Відʼєднати" : "Підключити") {
+                        Button(session.state == .connected ? "Disconnect" : "Connect") {
                             if session.state == .connected {
                                 session.disconnect()
                             } else {
@@ -207,26 +168,26 @@ struct ContentView: View {
                     // Two buttons rather than one with a chosen style: the styles are
                     // different types, and the unpaired case is the one that has to shout.
                     if session.isPaired {
-                        Button("Інший Mac") { showScanner = true }
+                        Button("Other Mac") { showScanner = true }
                             .buttonStyle(.bordered)
                     } else {
-                        Button("Сканувати код") { showScanner = true }
+                        Button("Scan code") { showScanner = true }
                             .buttonStyle(.borderedProminent)
                     }
 
                     if session.isLive {
-                        Button("Готово") { showSettings = false }
+                        Button("Done") { showSettings = false }
                     }
                 }
 
                 if !session.isPaired {
-                    Text("На Mac: значок у меню → «Показати код для телефона…»")
+                    Text("On the Mac: menu bar icon → “Show pairing code…”")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 HStack(spacing: 14) {
-                    Toggle("Вібрація", isOn: $session.hapticsEnabled)
+                    Toggle("Haptics", isOn: $session.hapticsEnabled)
                         .toggleStyle(.switch)
                         .font(.caption)
                         .fixedSize()
@@ -264,10 +225,10 @@ struct ContentView: View {
 
     private var statusText: String {
         switch session.state {
-        case .idle: "не підключено"
-        case .connecting: "підключення…"
-        case .connected where session.isLive: "підключено · \(session.pairedName ?? "")"
-        case .connected: "шукаю \(session.pairedName ?? "Mac")…"
+        case .idle: "not connected"
+        case .connecting: "connecting…"
+        case .connected where session.isLive: "connected · \(session.pairedName ?? "")"
+        case .connected: "looking for \(session.pairedName ?? "Mac")…"
         case .failed(let message): message
         }
     }

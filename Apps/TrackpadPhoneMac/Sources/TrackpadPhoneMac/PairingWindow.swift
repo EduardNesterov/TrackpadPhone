@@ -26,14 +26,14 @@ final class PairingWindow {
 
         content.addArrangedSubview(label(code.serviceName, size: 15, weight: .semibold))
         content.addArrangedSubview(label(
-            "На телефоні: «Сканувати код». Далі він знаходить цей Mac сам.",
+            "On the phone: “Scan code”. It finds this Mac by itself from then on.",
             size: 12, weight: .regular, secondary: true
         ))
         // The addresses are in the code anyway; showing them is for the moment when
         // pairing does not work and somebody needs to know what the phone was told.
         if let first = code.addresses.first {
             content.addArrangedSubview(label(
-                "\(first) · порт \(code.port)", size: 11, weight: .regular, secondary: true
+                "\(first) · port \(code.port)", size: 11, weight: .regular, secondary: true
             ))
         }
 
@@ -43,7 +43,7 @@ final class PairingWindow {
             backing: .buffered,
             defer: false
         )
-        window.title = "Код для телефона"
+        window.title = "Pairing code"
         window.contentView = content
         window.center()
         window.isReleasedWhenClosed = false
