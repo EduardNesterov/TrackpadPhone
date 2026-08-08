@@ -96,12 +96,25 @@ if [ -n "$local_team" ] && [ "$local_team" != "$project_team" ]; then
     overrides=(DEVELOPMENT_TEAM="$local_team" PRODUCT_BUNDLE_IDENTIFIER="$own_id")
     echo "==> your team is $local_team, so building as $own_id"
 elif [ -z "$local_team" ]; then
-    # No team found. Rather than guessing why, hand the job to Xcode with the author's team
-    # cleared out of the way: its own error message names the real problem, and a guess
-    # here would send somebody looking in the wrong place. Which it did.
-    echo "==> no signing team found on this Mac; letting Xcode try to sort it out"
-    echo "    if this fails, add your Apple ID: Xcode → Settings → Accounts → +"
-    overrides=(DEVELOPMENT_TEAM="" PRODUCT_BUNDLE_IDENTIFIER="com.$(id -un | tr -cd '[:alnum:]').trackpadphone")
+    # No team could be read from any certificate.
+    #
+    # An empty DEVELOPMENT_TEAM is not a way out — tested, and xcodebuild answers "Signing
+    # requires a development team" and stops. Neither is guessing. So: stop here, show what
+    # is actually on this Mac, and point at the one place that can fix it for good. Opening
+    # the project once and choosing an account makes Xcode create the certificate, and every
+    # run after that finds it.
+    echo "Could not work out which Apple developer team to build under."
+    echo
+    echo "Signing identities found on this Mac:"
+    security find-identity -v -p codesigning | sed 's/^/    /' || true
+    echo
+    echo "Fix it once, in the app that owns this:"
+    echo "    open $root/TrackpadPhone.xcodeproj"
+    echo "    target TrackpadPhoneiOS → Signing & Capabilities → Team → your Apple ID"
+    echo "    change Bundle Identifier to something of your own, then press ▶"
+    echo
+    echo "After that this script works on its own."
+    exit 1
 fi
 
 echo "==> building for $name"
