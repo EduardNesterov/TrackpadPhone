@@ -48,6 +48,38 @@ fi
 
 id="$(echo "$device" | cut -f1)"
 name="$(echo "$device" | cut -f2)"
+# Whose Mac is this?
+#
+# The project carries the author's team and bundle identifier, and neither travels. A free
+# Apple ID cannot register a bundle identifier that another team already claimed, so on
+# anybody else's machine the build fails with "failed to register bundle identifier" —
+# which points at nothing useful.
+#
+# The team comes out of the certificate's OU field, not from the name in brackets after
+# the email: that one is a different identifier entirely, and mistaking them produces
+# "No Account for Team", which points somewhere else again.
+project_team="$(grep -m1 'DEVELOPMENT_TEAM = ' "$root/TrackpadPhone.xcodeproj/project.pbxproj" \
+    | sed 's/.*= *//; s/;.*//')"
+local_team="$(security find-certificate -c "Apple Development" -p 2>/dev/null \
+    | openssl x509 -noout -subject 2>/dev/null \
+    | tr ',/' '\n\n' | sed -n 's/^OU=//p' | head -1)"
+
+# macOS still ships bash 3.2, where expanding an empty array under `set -u` is an error
+# rather than nothing — hence the guard at the use site below.
+overrides=()
+if [ -n "$local_team" ] && [ "$local_team" != "$project_team" ]; then
+    # Derived from the team, which is globally unique, so two people can never collide.
+    # Only when the teams differ: on the machine this was written on, nothing changes, and
+    # the app keeps its identity — and with it everything stored under that identity.
+    own_id="com.$(echo "$local_team" | tr '[:upper:]' '[:lower:]').trackpadphone"
+    overrides=(DEVELOPMENT_TEAM="$local_team" PRODUCT_BUNDLE_IDENTIFIER="$own_id")
+    echo "==> your team is $local_team, so building as $own_id"
+elif [ -z "$local_team" ]; then
+    echo "No Apple Development certificate found."
+    echo "Open Xcode → Settings → Accounts, add your Apple ID, then run this again."
+    exit 1
+fi
+
 echo "==> building for $name"
 
 xcodebuild -project "$root/TrackpadPhone.xcodeproj" \
@@ -55,6 +87,7 @@ xcodebuild -project "$root/TrackpadPhone.xcodeproj" \
     -destination "generic/platform=iOS" \
     -derivedDataPath "$derived" \
     -allowProvisioningUpdates \
+    ${overrides[@]+"${overrides[@]}"} \
     build >/dev/null
 
 app="$derived/Build/Products/Debug-iphoneos/TrackpadPhone.app"

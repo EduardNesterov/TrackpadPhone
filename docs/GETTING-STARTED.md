@@ -38,9 +38,15 @@ Plug the phone in, unlock it, tap **Trust** if asked, then from the same Termina
 
 It finds the phone, builds, and installs. The first build takes a few minutes.
 
-If it complains about signing, open `TrackpadPhone.xcodeproj` in Xcode once, select the
-`TrackpadPhoneiOS` target → *Signing & Capabilities*, and pick your own Apple ID under
-*Team*. Xcode handles the rest; then run the script again.
+The script notices whose Mac it is running on: the project carries its author's Apple team
+and app identifier, and neither of those can be reused by anybody else, so on your machine
+it quietly builds under your own. You do not have to change anything in Xcode.
+
+If it says no Apple Development certificate was found, open Xcode → Settings → Accounts,
+add your Apple ID, and run the script again. That is the one thing it cannot do for you.
+
+If the install ends in a *transport error*, the phone's connection dropped — unlock it,
+leave it on, and run the script again. It is safe to run any number of times.
 
 ## 3. Pairing — once
 
