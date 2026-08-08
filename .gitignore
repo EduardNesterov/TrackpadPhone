@@ -7,3 +7,6 @@ xcuserdata/
 Package.resolved
 __pycache__/
 dist/
+
+# derived data for scripts/install-phone.sh
+.build-ios/
