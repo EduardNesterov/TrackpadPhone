@@ -198,7 +198,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.eduardnesterov.trackpadphone;
+				PRODUCT_BUNDLE_IDENTIFIER = com.trackpadphone.app;
 				PRODUCT_NAME = TrackpadPhone;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -227,7 +227,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.eduardnesterov.trackpadphone;
+				PRODUCT_BUNDLE_IDENTIFIER = com.trackpadphone.app;
 				PRODUCT_NAME = TrackpadPhone;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;

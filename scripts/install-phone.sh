@@ -58,10 +58,11 @@ id="$(echo "$device" | cut -f1)"
 name="$(echo "$device" | cut -f2)"
 # Whose Mac is this?
 #
-# The project carries the author's team and bundle identifier, and neither travels. A free
-# Apple ID cannot register a bundle identifier that another team already claimed, so on
-# anybody else's machine the build fails with "failed to register bundle identifier" —
-# which points at nothing useful.
+# The project deliberately carries no team and a placeholder identifier, because neither
+# would travel: a free Apple ID cannot register a bundle identifier that another team has
+# already claimed, so a project with somebody's real one baked in fails for everyone else
+# with "failed to register bundle identifier" — a message that points at nothing useful.
+# So both are filled in here, from whoever owns this Mac.
 #
 # The team comes out of the certificate's OU field, not from the name in brackets after
 # the email: that one is a different identifier entirely, and mistaking them produces
@@ -97,9 +98,9 @@ PYTHON
 # rather than nothing — hence the guard at the use site below.
 overrides=()
 if [ -n "$local_team" ] && [ "$local_team" != "$project_team" ]; then
-    # Derived from the team, which is globally unique, so two people can never collide.
-    # Only when the teams differ: on the machine this was written on, nothing changes, and
-    # the app keeps its identity — and with it everything stored under that identity.
+    # Derived from the team, which is globally unique, so two people can never collide —
+    # and stable, so the same person keeps the same app, and with it everything the app
+    # stores: the pairing secret, the haptics setting, all of it.
     own_id="com.$(echo "$local_team" | tr '[:upper:]' '[:lower:]').trackpadphone"
     overrides=(DEVELOPMENT_TEAM="$local_team" PRODUCT_BUNDLE_IDENTIFIER="$own_id")
     echo "==> your team is $local_team, so building as $own_id"
